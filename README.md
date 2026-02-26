@@ -5,29 +5,6 @@ Automated performance tracking, NASA-data-driven compliance scoring, penalty enf
 
 ---
 
-## Table of Contents
-
-- [What Is This?](#what-is-this)
-- [System Architecture](#system-architecture)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Core Concepts](#core-concepts)
-- [Getting Started](#getting-started)
-- [Environment Variables](#environment-variables)
-- [Backend: FastAPI](#backend-fastapi)
-- [Frontend: React](#frontend-react)
-- [Blockchain Integration](#blockchain-integration)
-- [NASA POWER API](#nasa-power-api)
-- [Celery & Scheduling](#celery--scheduling)
-- [Alert System](#alert-system)
-- [Data Entry Modes](#data-entry-modes)
-- [API Reference](#api-reference)
-- [Database Schema](#database-schema)
-- [Deployment](#deployment)
-- [Roadmap](#roadmap)
-
----
-
 ## What Is This?
 
 GreenBond OS is a **Smart Green Bond monitoring system** that enforces energy performance agreements automatically and transparently.
@@ -56,7 +33,7 @@ Everything is logged to PostgreSQL and every critical event has a blockchain tra
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        FRONTEND                             │
-│   React (Vite) · IBM Plex Mono · Recharts · Bloomberg UI   │
+│   React (Vite) · IBM Plex Mono · Recharts · Bloomberg UI    │
 │   Dashboard · Bond Detail · Map · Alerts · Data Entry       │
 └────────────────────────────┬────────────────────────────────┘
                              │ REST API
@@ -189,21 +166,6 @@ PR = Actual GHI (measured) ÷ NASA GHI (satellite baseline)
 - **PR < 0.75 for 3 consecutive days** → Penalty triggered. Rate hiked.
 - **PR ≥ 0.75 for 7 consecutive days** → Recovery. Rate restored to base.
 
-### Penalty & Recovery Logic
-
-```python
-# Simplified penalty engine
-if consecutive_penalty_days >= 3 and current_rate == base_rate:
-    new_rate = base_rate * 1.5       # e.g. 5.0% → 7.5%
-    write_to_blockchain(bond_id, new_rate)
-    send_alerts(bond_id, "PENALTY")
-
-if consecutive_compliant_days >= 7 and current_rate > base_rate:
-    new_rate = base_rate             # Reset to base
-    write_to_blockchain(bond_id, new_rate)
-    send_alerts(bond_id, "RECOVERY")
-```
-
 ### Verdict States
 
 | Verdict | Condition | Action |
@@ -328,38 +290,7 @@ The backend exposes a REST API consumed by the React frontend. All endpoints ret
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8000
 # Interactive docs: http://localhost:8000/docs
-```
-
-### Key Services
-
-**`services/pr_engine.py`** — Core PR calculation:
-```python
-def calculate_pr(actual_kwh: float, nasa_ghi: float, capacity_mw: float) -> float:
-    expected_kwh = nasa_ghi * capacity_mw * 1000 * PERFORMANCE_FACTOR
-    actual_ghi = actual_kwh / (capacity_mw * 1000 * PERFORMANCE_FACTOR)
-    return actual_ghi / nasa_ghi
-```
-
-**`services/nasa.py`** — Fetches daily GHI for a GPS coordinate:
-```python
-async def get_ghi(lat: float, lng: float, date: str) -> float:
-    # Calls NASA POWER API and returns GHI in kWh/m²
-```
-
-**`tasks/daily_audit.py`** — The main Celery task that runs every morning:
-```python
-@celery_app.task
-def run_daily_audit():
-    for bond in get_active_bonds():
-        ghi = get_nasa_ghi(bond.lat, bond.lng)
-        production = get_production(bond.id)
-        pr = calculate_pr(production.kwh, ghi, bond.capacity_mw)
-        verdict = evaluate_penalty(bond, pr)
-        log_audit(bond.id, pr, ghi, verdict)
-        if verdict in ("PENALTY", "RECOVERY"):
-            tx_hash = write_to_blockchain(bond.id, new_rate)
-            send_alerts(bond, verdict, tx_hash)
-```
+````
 
 ---
 
@@ -410,37 +341,6 @@ npm run preview      # Preview production build
 
 Deployed on **Polygon Mainnet** for low gas costs and fast finality.
 
-```solidity
-// GreenBond.sol (simplified)
-contract GreenBond {
-    struct RateChange {
-        uint256 timestamp;
-        string bondId;
-        uint256 previousRate;   // basis points (500 = 5.00%)
-        uint256 newRate;
-        string trigger;         // "PENALTY" or "RECOVERY"
-        bytes32 dataHash;       // Hash of the PR data
-    }
-
-    mapping(string => RateChange[]) public rateHistory;
-
-    event RateChanged(string bondId, uint256 newRate, string trigger);
-
-    function recordRateChange(
-        string memory bondId,
-        uint256 newRate,
-        string memory trigger,
-        bytes32 dataHash
-    ) public onlyOwner {
-        rateHistory[bondId].push(RateChange(
-            block.timestamp, bondId, getCurrentRate(bondId),
-            newRate, trigger, dataHash
-        ));
-        emit RateChanged(bondId, newRate, trigger);
-    }
-}
-```
-
 ### Deploying the Contract
 
 ```bash
@@ -451,88 +351,17 @@ npx hardhat run scripts/deploy.js --network polygon
 # Copy the deployed address to CONTRACT_ADDRESS in .env
 ```
 
-### Writing to Blockchain
-
-```python
-# services/blockchain.py
-from web3 import Web3
-
-def write_rate_change(bond_id: str, new_rate: float, trigger: str, pr_data: dict) -> str:
-    w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
-    contract = w3.eth.contract(address=settings.CONTRACT_ADDRESS, abi=ABI)
-    data_hash = Web3.keccak(text=json.dumps(pr_data))
-
-    tx = contract.functions.recordRateChange(
-        bond_id, int(new_rate * 100), trigger, data_hash
-    ).build_transaction({
-        "from": wallet_address,
-        "nonce": w3.eth.get_transaction_count(wallet_address),
-        "gas": 100000,
-        "gasPrice": w3.eth.gas_price,
-    })
-
-    signed = w3.eth.account.sign_transaction(tx, settings.WALLET_PRIVATE_KEY)
-    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-    return receipt["transactionHash"].hex()
-```
-
 ---
 
 ## NASA POWER API
 
 All performance calculations are grounded in **NASA satellite GHI data**, making them objective and unmanipulable.
 
-**Endpoint:** `https://power.larc.nasa.gov/api/temporal/daily/point`
-
-**Example Request:**
-```
-GET https://power.larc.nasa.gov/api/temporal/daily/point
-    ?parameters=ALLSKY_SFC_SW_DWN
-    &community=RE
-    &longitude=75.79
-    &latitude=26.91
-    &start=20250610
-    &end=20250610
-    &format=JSON
-```
-
-**Example Response:**
-```json
-{
-  "properties": {
-    "parameter": {
-      "ALLSKY_SFC_SW_DWN": {
-        "20250610": 5.83
-      }
-    }
-  }
-}
-```
-
-**Usage:** `5.83 kWh/m²` is the NASA-predicted solar irradiance for that day and location. This becomes the denominator in the PR formula.
-
-The NASA POWER API is **free, requires no API key**, and has global coverage dating back to 1981.
-
 ---
 
 ## Celery & Scheduling
 
 The audit pipeline runs automatically every morning via **Celery Beat**.
-
-### Schedule Configuration
-
-```python
-# tasks/beat_schedule.py
-from celery.schedules import crontab
-
-CELERYBEAT_SCHEDULE = {
-    "daily-green-bond-audit": {
-        "task": "tasks.daily_audit.run_daily_audit",
-        "schedule": crontab(hour=6, minute=0),   # 6:00 AM IST
-    },
-}
-```
 
 ### Audit Pipeline (Step by Step)
 
@@ -580,29 +409,6 @@ Alerts are triggered for **every rate change** — both penalty hikes and recove
 | Daily Warning | PR below threshold (streak ongoing) | System log |
 | IoT Offline | Device stale > 24h | Email |
 
-### Twilio SMS
-
-```python
-from twilio.rest import Client
-
-def send_sms(to: str, body: str):
-    client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-    client.messages.create(to=to, from_=settings.TWILIO_FROM_NUMBER, body=body)
-```
-
-### SendGrid Email
-
-```python
-import sendgrid
-from sendgrid.helpers.mail import Mail
-
-def send_email(to: str, subject: str, html_content: str):
-    sg = sendgrid.SendGridAPIClient(api_key=settings.SENDGRID_API_KEY)
-    message = Mail(from_email=settings.ALERT_FROM_EMAIL, to_emails=to,
-                   subject=subject, html_content=html_content)
-    sg.send(message)
-```
-
 ---
 
 ## Data Entry Modes
@@ -610,173 +416,20 @@ def send_email(to: str, subject: str, html_content: str):
 ### Option A: IoT Auto-Sync
 
 Inverters push data directly via REST API:
-
-```
-POST /api/production/iot
-{
-  "device_id": "INV-001",
-  "bond_id": "GB-2024-001",
-  "date": "2025-06-10",
-  "kwh": 18500.4,
-  "timestamp": "2025-06-10T18:00:00Z"
-}
-```
-
 Supported inverter brands via MODBUS/SunSpec protocol adapters: Sungrow, Huawei, SMA, Fronius, ABB.
 
 ### Option B: Manual Entry
 
-Via the frontend Data Entry form, or directly:
-
-```
-POST /api/production/manual
-{
-  "bond_id": "GB-2024-001",
-  "date": "2025-06-10",
-  "kwh": 18500,
-  "notes": "Grid outage 14:00–16:00",
-  "uploaded_by": "operator@example.com"
-}
-```
+Via the frontend Data Entry form
 
 ### Missing Days
 
 Days with no production data are marked as `IGNORED` and excluded from the penalty streak calculation. The frontend's calendar view highlights missing days with a red dot indicator.
-
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/bonds` | List all bonds |
-| `GET` | `/api/bonds/:id` | Bond detail + current status |
-| `POST` | `/api/bonds` | Create new bond |
-| `GET` | `/api/bonds/:id/timeseries?days=60` | PR + energy time series |
-| `GET` | `/api/audit?bond_id=&limit=` | Audit log with TX hashes |
-| `GET` | `/api/alerts?bond_id=&severity=` | Alert history |
-| `POST` | `/api/production/manual` | Submit manual kWh entry |
-| `POST` | `/api/production/iot` | IoT device data push |
-| `GET` | `/api/blockchain/tx/:hash` | Transaction details |
-| `GET` | `/api/health` | System health check |
-| `POST` | `/api/audit/run` | Manually trigger audit (admin) |
-
-Full interactive docs available at `/docs` (Swagger UI) and `/redoc`.
-
----
-
-## Database Schema
-
-```sql
--- Core bond registry
-CREATE TABLE bonds (
-    id              VARCHAR(20) PRIMARY KEY,    -- "GB-2024-001"
-    name            VARCHAR(100) NOT NULL,
-    capacity_kw     DECIMAL(10,2) NOT NULL,
-    lat             DECIMAL(9,6) NOT NULL,
-    lng             DECIMAL(9,6) NOT NULL,
-    base_rate       DECIMAL(5,3) NOT NULL,
-    current_rate    DECIMAL(5,3) NOT NULL,
-    status          VARCHAR(20) NOT NULL,        -- ACTIVE / PENALTY / MATURED
-    tvl             BIGINT DEFAULT 0,
-    created_at      TIMESTAMP DEFAULT NOW(),
-    maturity_date   DATE
-);
-
--- Daily PR audit records
-CREATE TABLE audit_logs (
-    id                      SERIAL PRIMARY KEY,
-    bond_id                 VARCHAR(20) REFERENCES bonds(id),
-    date                    DATE NOT NULL,
-    nasa_ghi                DECIMAL(6,3),
-    actual_kwh              DECIMAL(12,2),
-    calculated_pr           DECIMAL(6,4),
-    threshold               DECIMAL(4,2) DEFAULT 0.75,
-    verdict                 VARCHAR(20),        -- COMPLIANT / PENALTY / IGNORED
-    consecutive_penalty     INTEGER DEFAULT 0,
-    consecutive_compliant   INTEGER DEFAULT 0,
-    blockchain_tx_hash      VARCHAR(100),
-    created_at              TIMESTAMP DEFAULT NOW()
-);
-
--- Daily production entries (manual + IoT)
-CREATE TABLE production_entries (
-    id          SERIAL PRIMARY KEY,
-    bond_id     VARCHAR(20) REFERENCES bonds(id),
-    date        DATE NOT NULL,
-    kwh         DECIMAL(12,2) NOT NULL,
-    source      VARCHAR(20),                    -- MANUAL / IOT
-    device_id   VARCHAR(50),
-    notes       TEXT,
-    uploaded_by VARCHAR(100),
-    created_at  TIMESTAMP DEFAULT NOW(),
-    UNIQUE(bond_id, date)
-);
-
--- Alert history
-CREATE TABLE alerts (
-    id          SERIAL PRIMARY KEY,
-    bond_id     VARCHAR(20) REFERENCES bonds(id),
-    timestamp   TIMESTAMP DEFAULT NOW(),
-    type        VARCHAR(20),                    -- BLOCKCHAIN / EMAIL / SMS / SYSTEM
-    message     TEXT,
-    tx_hash     VARCHAR(100),
-    severity    VARCHAR(20),                    -- critical / warning / success
-    status      VARCHAR(20)                     -- DELIVERED / CONFIRMED / LOGGED / FAILED
-);
-```
-
 ---
 
 ## Deployment
 
 ### Docker Compose (Production)
-
-```yaml
-# docker-compose.yml
-version: "3.9"
-services:
-  postgres:
-    image: postgres:15
-    env_file: .env
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7-alpine
-
-  backend:
-    build:
-      dockerfile: Dockerfile.backend
-    env_file: .env
-    depends_on: [postgres, redis]
-    ports:
-      - "8000:8000"
-
-  celery-worker:
-    build:
-      dockerfile: Dockerfile.backend
-    command: celery -A tasks.celery_app worker --loglevel=info
-    env_file: .env
-    depends_on: [redis, postgres]
-
-  celery-beat:
-    build:
-      dockerfile: Dockerfile.backend
-    command: celery -A tasks.celery_app beat --loglevel=info
-    env_file: .env
-    depends_on: [redis]
-
-  frontend:
-    build:
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "80:80"
-    depends_on: [backend]
-
-volumes:
-  pgdata:
-```
 
 ```bash
 docker-compose up -d --build
@@ -796,28 +449,6 @@ docker-compose exec backend alembic upgrade head
 
 ---
 
-## Roadmap
-
-**v1.1 — Q3 2025**
-- [ ] Mapbox GL integration for live satellite weather overlay
-- [ ] Multi-tenant support (multiple issuers, separate dashboards)
-- [ ] Webhook support for third-party integrations
-- [ ] Historical backtesting tool (simulate penalty impact on past data)
-
-**v1.2 — Q4 2025**
-- [ ] Mobile app (React Native)
-- [ ] Wind speed data integration (for wind bonds)
-- [ ] Automated inverter MODBUS polling agent
-- [ ] ISO 50001 compliance report export (PDF)
-
-**v2.0 — 2026**
-- [ ] DeFi integration — let investors buy/sell bond exposure as tokens
-- [ ] Multi-chain support (Ethereum mainnet, Arbitrum)
-- [ ] AI-powered anomaly detection (flag suspicious production data)
-- [ ] Carbon credit bridge (link PR compliance to carbon offset issuance)
-
----
-
 ## License
 
 MIT License. See `LICENSE` for details.
@@ -827,7 +458,7 @@ MIT License. See `LICENSE` for details.
 ## Contact
 
 Built for the green finance ecosystem.  
-For enterprise inquiries, custom deployments, or partnership opportunities — open an issue or reach out at `hello@greenbond.io`
+For enterprise inquiries, custom deployments, or partnership opportunities — open an issue
 
 ---
 
