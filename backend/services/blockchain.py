@@ -86,7 +86,7 @@ class BlockchainService:
                 "nonce": nonce,
                 "gas": 150000,
                 "gasPrice": self.w3.eth.gas_price,
-                "chainId": 137,  # Polygon Mainnet
+                "chainId": 80002,  # Polygon Amoy Testnet
             })
 
             # Sign and submit
