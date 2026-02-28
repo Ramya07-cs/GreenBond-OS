@@ -65,12 +65,13 @@ contract GreenBond {
 
     /**
      * @notice Register a new bond with its base rate.
-     * @param bondId   Unique bond identifier (e.g. "GB-2024-001")
-     * @param baseRate Base interest rate in basis points (500 = 5.00%)
+     * @param bondId   Unique bond identifier 
+     * @param baseRate Base interest rate in basis points (500 = 5.00%) => Basis point encoding
+        //Solidity doesn't have float/decimal numbers so for precision we multiply 100
      */
     function registerBond(string calldata bondId, uint256 baseRate) external onlyOwner {
         require(!bondExists[bondId], "GreenBond: bond already registered");
-        require(baseRate > 0 && baseRate <= 5000, "GreenBond: invalid base rate");
+        require(baseRate > 0 && baseRate <= 5000, "GreenBond: invalid base rate");   //no green bond issuer would ever reach this,max penalty rate is 50%
 
         bondExists[bondId] = true;
         currentRate[bondId] = baseRate;
