@@ -12,8 +12,8 @@ def get_blockchain_status():
     gas = blockchain_service.get_gas_price_gwei()
     return {
         "connected": connected,
-        "network": "Polygon Mainnet",
-        "chain_id": 137,
+        "network": "Polygon Amoy Testnet",
+        "chain_id": 80002,
         "latest_block": block,
         "gas_price_gwei": gas,
     }
