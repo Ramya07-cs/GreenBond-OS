@@ -1,0 +1,89 @@
+[
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [{"internalType": "string","name": "bondId","type": "string"},{"internalType": "uint256","name": "baseRate","type": "uint256"}],
+    "name": "registerBond",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {"internalType": "string","name": "bondId","type": "string"},
+      {"internalType": "uint256","name": "newRate","type": "uint256"},
+      {"internalType": "string","name": "triggerType","type": "string"},
+      {"internalType": "bytes32","name": "dataHash","type": "bytes32"}
+    ],
+    "name": "recordRateChange",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "string","name": "bondId","type": "string"}],
+    "name": "getRateHistory",
+    "outputs": [
+      {
+        "components": [
+          {"internalType": "uint256","name": "timestamp","type": "uint256"},
+          {"internalType": "string","name": "bondId","type": "string"},
+          {"internalType": "uint256","name": "previousRate","type": "uint256"},
+          {"internalType": "uint256","name": "newRate","type": "uint256"},
+          {"internalType": "string","name": "triggerType","type": "string"},
+          {"internalType": "bytes32","name": "dataHash","type": "bytes32"},
+          {"internalType": "uint256","name": "blockNumber","type": "uint256"}
+        ],
+        "internalType": "struct GreenBond.RateChange[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "string","name": "bondId","type": "string"}],
+    "name": "getCurrentRate",
+    "outputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "string","name": "bondId","type": "string"}],
+    "name": "getRateChangeCount",
+    "outputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getBondCount",
+    "outputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "address","name": "newOwner","type": "address"}],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true,"internalType": "string","name": "bondId","type": "string"},
+      {"indexed": false,"internalType": "uint256","name": "previousRate","type": "uint256"},
+      {"indexed": false,"internalType": "uint256","name": "newRate","type": "uint256"},
+      {"indexed": false,"internalType": "string","name": "triggerType","type": "string"},
+      {"indexed": false,"internalType": "bytes32","name": "dataHash","type": "bytes32"},
+      {"indexed": false,"internalType": "uint256","name": "timestamp","type": "uint256"}
+    ],
+    "name": "RateChanged",
+    "type": "event"
+  }
+]
