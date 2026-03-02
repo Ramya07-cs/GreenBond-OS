@@ -20,29 +20,12 @@ class PRResult:
 
 
 class PREngine:
-    """
-    Performance Ratio calculator.
-
-    Formula:
-        expected_kwh = NASA_GHI × capacity_kW × performance_factor
-        actual_ghi   = actual_kwh / (capacity_kW × performance_factor)
-        PR           = actual_ghi / NASA_GHI
-
-    Where performance_factor accounts for system losses (inverter, wiring, temp, etc.)
-    Industry standard is 0.75–0.85. We use 0.80 as a conservative baseline.
-    """
-
     def calculate(
         self,
         actual_kwh: Optional[float],
         nasa_ghi: Optional[float],
         capacity_kw: float,
     ) -> PRResult:
-        """
-        Calculate PR from actual production, NASA GHI, and system capacity.
-        Returns PRResult with full audit trail.
-        """
-
         # Handle missing data — day is IGNORED, not penalised
         if actual_kwh is None or nasa_ghi is None:
             return PRResult(

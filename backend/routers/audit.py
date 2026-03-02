@@ -72,15 +72,6 @@ def trigger_manual_audit(
 def trigger_manual_catchup():
     """
     Manually trigger the missed-audit catchup (admin use).
-
-    Useful when:
-      - You want to force a catchup without restarting the server
-      - The automatic startup catchup failed for some reason
-      - You extended MAX_CATCHUP_DAYS and want to re-run it
-
-    This is the same logic that runs automatically on every server startup.
-    It is fully idempotent — safe to call multiple times.
-
     Returns a summary of what was found and queued.
     """
     try:

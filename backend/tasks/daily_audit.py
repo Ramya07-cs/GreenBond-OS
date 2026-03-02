@@ -22,17 +22,6 @@ logger = logging.getLogger(__name__)
     default_retry_delay=300,  # 5 minutes
 )
 def run_daily_audit(self, target_date: str = None):
-    """
-    Main daily audit task. Runs for all active bonds.
-    Steps:
-      1. Fetch NASA GHI for each bond's GPS coordinates
-      2. Retrieve daily production from PostgreSQL
-      3. Calculate Performance Ratio
-      4. Evaluate penalty/recovery logic
-      5. Write to blockchain (if rate change)
-      6. Send SMS + Email alerts (if rate change)
-      7. Log audit record to PostgreSQL
-    """
     audit_date = date.fromisoformat(target_date) if target_date else date.today()
     logger.info(f"=== Daily Audit Started for {audit_date} ===")
 

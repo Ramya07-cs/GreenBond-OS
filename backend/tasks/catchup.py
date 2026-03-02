@@ -1,23 +1,6 @@
-"""
-catchup.py — Missed Audit Recovery
 
-Called automatically on every server startup via main.py lifespan hook.
-
-What it does:
-  1. Looks at each active/penalty bond in the DB
-  2. Finds the last date an audit was successfully logged
-  3. Detects any gap between that date and yesterday (today hasn't been audited yet)
-  4. Queues a run_daily_audit task for every missed date, in chronological order
-  5. Logs a summary so you can see what was recovered in the server logs
-
-Why yesterday and not today?
-  Today's audit is handled by Celery Beat at 6:00 AM IST as usual.
-  Catchup only fills in the historical gap — it never duplicates today's scheduled run.
-
-What if a date was already audited?
-  It checks the audit_logs table first. If a record exists for that bond + date,
-  it skips it. This makes catchup fully idempotent — safe to call multiple times.
-"""
+#catchup.py — Missed Audit Recovery
+#Called automatically on every server startup via main.py lifespan hook.
 
 import logging
 from datetime import date, timedelta
@@ -31,8 +14,6 @@ from models import Bond, AuditLog, BondStatus
 
 logger = logging.getLogger(__name__)
 
-# Maximum number of days to look back.
-# Safety cap — if the server was down for a year, we don't queue 365 tasks blindly.
 # Adjust this to match your business rules (e.g. 30 = one month lookback max).
 MAX_CATCHUP_DAYS = 30
 

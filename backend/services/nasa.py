@@ -8,15 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class NASAService:
-    """
-    Client for the NASA POWER API.
-    Returns daily GHI (Global Horizontal Irradiance) in kWh/m²
-    for a given GPS coordinate and date range.
-
-    API Docs: https://power.larc.nasa.gov/docs/services/api/
-    No API key required. Free and globally available.
-    """
-
+   
     BASE_URL = settings.NASA_API_BASE
 
     async def get_ghi(
@@ -25,10 +17,7 @@ class NASAService:
         lng: float,
         target_date: date,
     ) -> Optional[float]:
-        """
-        Fetch GHI for a single date and coordinate.
-        Returns kWh/m² or None if unavailable.
-        """
+       
         date_str = target_date.strftime("%Y%m%d")
         params = {
             "parameters": settings.NASA_PARAMETER,
@@ -76,9 +65,7 @@ class NASAService:
         start: date,
         end: date,
     ) -> dict[str, Optional[float]]:
-        """
-        Fetch GHI for a date range. Returns {date_str: ghi_value} dict.
-        """
+       
         params = {
             "parameters": settings.NASA_PARAMETER,
             "community": settings.NASA_COMMUNITY,

@@ -19,26 +19,6 @@ class PenaltyDecision:
 
 
 class PenaltyEngine:
-    """
-    Evaluates whether a rate change should occur based on the
-    consecutive-day streak logic defined in the bond agreement.
-
-    Rules:
-    ─────
-    • If PR < threshold for CONSECUTIVE_PENALTY_DAYS consecutive days:
-        → Rate hiked to base_rate × PENALTY_RATE_MULTIPLIER
-        → Blockchain TX written
-        → Alerts sent
-
-    • If PR ≥ threshold for CONSECUTIVE_RECOVERY_DAYS consecutive days
-      AND bond is currently in penalty state:
-        → Rate reset to base_rate
-        → Blockchain TX written
-        → Alerts sent
-
-    • IGNORED days do NOT reset the streak in either direction.
-    """
-
     def evaluate(
         self,
         pr_verdict: str,            # COMPLIANT / PENALTY / IGNORED

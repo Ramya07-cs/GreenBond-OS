@@ -66,7 +66,7 @@ class AlertService:
         """Send full penalty notification via SMS + Email."""
         results = {}
 
-        subject = f"⚠️ PENALTY TRIGGERED — {bond_name} ({bond_id})"
+        subject = f"PENALTY TRIGGERED — {bond_name} ({bond_id})"
         sms_body = (
             f"GreenBond Alert: {bond_name} ({bond_id})\n"
             f"Rate hiked {previous_rate}% → {new_rate}% after "

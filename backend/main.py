@@ -11,29 +11,24 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Runs on startup and shutdown.
+    
+    #Runs on startup and shutdown.
 
-    Startup order:
-      1. Create DB tables (dev only — use Alembic in prod)
-      2. Run catchup_missed_audits() to recover any days missed while server was down
-         This is safe to call every restart — it's fully idempotent.
-    """
-    logger.info(f"🚀 {settings.APP_NAME} starting up...")
+    logger.info(f" {settings.APP_NAME} starting up...")
 
     if settings.DEBUG:
-        create_all_tables()  # Auto-create tables in dev; use Alembic in prod
+        create_all_tables()  # Auto-create tables in dev
 
     # ── CATCHUP: fill in any audit gaps caused by downtime ──────────────────
     # Import here to avoid circular imports at module load time
     try:
         from tasks.catchup import catchup_missed_audits
-        logger.info("🔍 Running startup catchup check for missed audits...")
+        logger.info("Running startup catchup check for missed audits...")
         summary = catchup_missed_audits()
 
         if summary["total_missed_days"] > 0:
             logger.warning(
-                f"⚠️  Catchup queued {summary['total_missed_days']} missed audit(s) "
+                f" Catchup queued {summary['total_missed_days']} missed audit(s) "
                 f"across {len(summary['queued'])} bond(s). "
                 f"Celery workers will process them in the background."
             )
@@ -43,20 +38,20 @@ async def lifespan(app: FastAPI):
                     + ", ".join(entry["dates"])
                 )
         else:
-            logger.info("✅ Catchup complete — all bonds are up to date.")
+            logger.info("Catchup complete — all bonds are up to date.")
 
     except Exception as e:
         # NEVER let a catchup failure block the server from starting.
         # Log the error loudly, but continue.
         logger.error(
-            f"❌ Startup catchup failed with an unexpected error: {e}. "
+            f"Startup catchup failed with an unexpected error: {e}. "
             f"Server will continue — trigger manual catchup via /audit/catchup if needed.",
             exc_info=True,
         )
     # ────────────────────────────────────────────────────────────────────────
 
     yield
-    logger.info(f"👋 {settings.APP_NAME} shutting down.")
+    logger.info(f"{settings.APP_NAME} shutting down.")
 
 
 app = FastAPI(
