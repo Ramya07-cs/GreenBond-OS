@@ -1,0 +1,12 @@
+# Virtual Environment
+venv/
+*.pyc 
+
+.venv/
+.vnev/
+env/
+.env
+ENV/
+
+# Environment variables
+.env
