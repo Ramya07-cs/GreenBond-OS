@@ -6,12 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 class AlertService:
-    """
-    Dispatches SMS (via Twilio) and Email (via SendGrid) alerts
-    for penalty triggers, recovery events, and system warnings.
-    """
-
-    # ── SMS ──────────────────────────────────────────────────────────────────
+    # ── SMS ───────────────────────────────────────────────────────────────────
 
     def send_sms(self, to: str, body: str) -> bool:
         """Send SMS via Twilio. Returns True on success."""
@@ -23,10 +18,10 @@ class AlertService:
                 from_=settings.TWILIO_FROM_NUMBER,
                 body=body,
             )
-            logger.info(f"SMS sent to {to}: SID={message.sid}")
+            logger.info(f"[SMS] Sent to {to}: SID={message.sid}")
             return True
         except Exception as e:
-            logger.error(f"SMS failed to {to}: {e}")
+            logger.error(f"[SMS] Failed to {to}: {e}")
             return False
 
     # ── Email ─────────────────────────────────────────────────────────────────
@@ -44,10 +39,10 @@ class AlertService:
                 html_content=html_body,
             )
             response = sg.send(message)
-            logger.info(f"Email sent to {to}: status={response.status_code}")
+            logger.info(f"[Email] Sent to {to}: status={response.status_code}")
             return response.status_code in (200, 202)
         except Exception as e:
-            logger.error(f"Email failed to {to}: {e}")
+            logger.error(f"[Email] Failed to {to}: {e}")
             return False
 
     # ── Alert Templates ───────────────────────────────────────────────────────
@@ -113,7 +108,7 @@ class AlertService:
         """Send recovery confirmation via Email."""
         results = {}
 
-        subject = f"✅ RECOVERY CONFIRMED — {bond_name} ({bond_id})"
+        subject = f"RECOVERY CONFIRMED — {bond_name} ({bond_id})"
         html_body = f"""
         <div style="font-family:monospace;background:#0a0a0a;color:#e8f0fe;padding:24px;border-radius:8px">
           <h2 style="color:#00E676">✅ RECOVERY CONFIRMED</h2>
@@ -129,6 +124,94 @@ class AlertService:
 
         if issuer_email:
             results["email"] = self.send_email(issuer_email, subject, html_body)
+
+        return results
+
+    def send_missing_data_alert(
+        self,
+        bond_id: str,
+        bond_name: str,
+        missing_date: str,
+        consecutive_missing: int,
+        issuer_email: Optional[str],
+        issuer_phone: Optional[str],
+    ) -> dict:
+
+        results = {}
+
+        subject = f"📋 MISSING DATA — {bond_name} ({bond_id}) — {missing_date}"
+        html_body = f"""
+        <div style="font-family:monospace;background:#0a0a0a;color:#e8f0fe;padding:24px;border-radius:8px">
+          <h2 style="color:#FFB300">📋 MISSING PRODUCTION DATA</h2>
+          <p><strong>Bond:</strong> {bond_name} ({bond_id})</p>
+          <p><strong>Missing Date:</strong> {missing_date}</p>
+          <p><strong>Consecutive Missing Days:</strong> {consecutive_missing}</p>
+          <p style="color:#FFB300">
+            ⚠️ This day has been logged as <strong>IGNORED</strong> and will not
+            affect your penalty streak. However, please submit production data
+            promptly to maintain a complete audit trail.
+          </p>
+          <p style="color:#888;font-size:12px">
+            Submit data at: <a href="https://greenbond.io/data-entry" style="color:#2196F3">
+              greenbond.io/data-entry
+            </a>
+          </p>
+        </div>
+        """
+        sms_body = (
+            f"GreenBond: Missing production data for {bond_name} ({bond_id}) "
+            f"on {missing_date}. {consecutive_missing} day(s) missing. "
+            f"Please submit at greenbond.io/data-entry"
+        )
+
+        if issuer_email:
+            results["email"] = self.send_email(issuer_email, subject, html_body)
+
+        # Escalate to SMS only if 3+ consecutive missing days
+        if issuer_phone and consecutive_missing >= 3:
+            results["sms"] = self.send_sms(issuer_phone, sms_body)
+
+        return results
+
+    def send_maturity_alert(
+        self,
+        bond_id: str,
+        bond_name: str,
+        maturity_date: str,
+        final_avg_pr: Optional[float],
+        total_penalty_days: int,
+        issuer_email: Optional[str],
+        issuer_phone: Optional[str],
+    ) -> dict:
+    
+        results = {}
+        pr_display = f"{round(final_avg_pr * 100, 1)}%" if final_avg_pr else "N/A"
+
+        subject = f"🏁 BOND MATURED — {bond_name} ({bond_id})"
+        html_body = f"""
+        <div style="font-family:monospace;background:#0a0a0a;color:#e8f0fe;padding:24px;border-radius:8px">
+          <h2 style="color:#00BCD4">🏁 BOND MATURED</h2>
+          <p><strong>Bond:</strong> {bond_name} ({bond_id})</p>
+          <p><strong>Maturity Date:</strong> {maturity_date}</p>
+          <hr style="border-color:#263238;margin:16px 0"/>
+          <h3 style="color:#90A4AE">Final Performance Summary</h3>
+          <p><strong>Average PR (lifetime):</strong> {pr_display}</p>
+          <p><strong>Total Penalty Days:</strong> {total_penalty_days}</p>
+          <p style="color:#00E676;margin-top:16px">
+            ✅ All audit records have been archived and are permanently
+            available on the Polygon blockchain.
+          </p>
+        </div>
+        """
+        sms_body = (
+            f"GreenBond: {bond_name} ({bond_id}) has matured on {maturity_date}. "
+            f"Avg PR: {pr_display}. All records archived."
+        )
+
+        if issuer_email:
+            results["email"] = self.send_email(issuer_email, subject, html_body)
+        if issuer_phone:
+            results["sms"] = self.send_sms(issuer_phone, sms_body)
 
         return results
 
