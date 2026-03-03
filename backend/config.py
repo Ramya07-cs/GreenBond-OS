@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     AUDIT_CRON_HOUR: int = 6
     AUDIT_CRON_MINUTE: int = 0
 
+    # Sentry (error monitoring — leave blank to disable)
+    SENTRY_DSN: str = ""
+
     # PR Engine
     PR_THRESHOLD: float = 0.75
     CONSECUTIVE_PENALTY_DAYS: int = 3

@@ -55,10 +55,7 @@ def trigger_manual_audit(
     target_date: Optional[str] = None,
     bond_id: Optional[str] = None,
 ):
-    """
-    Manually trigger the daily audit pipeline (admin use).
-    Sends task to Celery queue.
-    """
+
     from tasks.daily_audit import run_daily_audit
     task = run_daily_audit.delay(target_date=target_date)
     return {
@@ -70,10 +67,6 @@ def trigger_manual_audit(
 
 @router.post("/catchup")
 def trigger_manual_catchup():
-    """
-    Manually trigger the missed-audit catchup (admin use).
-    Returns a summary of what was found and queued.
-    """
     try:
         from tasks.catchup import catchup_missed_audits
         summary = catchup_missed_audits()

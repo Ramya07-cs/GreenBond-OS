@@ -5,7 +5,10 @@ celery_app = Celery(
     "greenbond",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["tasks.daily_audit"],
+    include=[
+        "tasks.daily_audit",
+        "tasks.maturity",       # Bond lifecycle maturity detection
+    ],
 )
 
 celery_app.conf.update(

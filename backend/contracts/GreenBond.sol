@@ -9,7 +9,7 @@ pragma solidity ^0.8.20;
  * This contract is the "single source of truth" for interest rate changes —
  * no human can alter or delete these records after they are written.
  *
- * Deployed on Polygon Mainnet for low gas costs and 2-second finality.
+ * * Deployed on Polygon Amoy Testnet for development and testing.
  */
 contract GreenBond {
 

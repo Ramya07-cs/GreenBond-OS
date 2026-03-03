@@ -1,83 +1,128 @@
 import time
-import redis
+import json
+import logging
+import httpx
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from database import get_db
+from models import Bond, BondStatus
 from services.blockchain import blockchain_service
+from redis_client import redis_client
 from config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/health", tags=["health"])
+
+HEALTH_CACHE_KEY = "health:full_check"
+HEALTH_CACHE_TTL = 60  # seconds
 
 
 @router.get("/")
 def system_health(db: Session = Depends(get_db)):
-    """Full system health check for the admin dashboard."""
-    results = {}
+    cached = redis_client.get(HEALTH_CACHE_KEY)
+    if cached:
+        result = json.loads(cached)
+        result["cached"] = True
+        return result
+
+    services = {}
 
     # PostgreSQL
     try:
         db.execute(text("SELECT 1"))
-        results["postgresql"] = {"status": "CONNECTED", "ok": True}
+        services["postgresql"] = {"status": "CONNECTED", "ok": True}
     except Exception as e:
-        results["postgresql"] = {"status": "ERROR", "ok": False, "error": str(e)}
+        logger.error(f"[Health] PostgreSQL check failed: {e}")
+        services["postgresql"] = {"status": "ERROR", "ok": False, "error": str(e)}
 
     # Redis
     try:
-        r = redis.from_url(settings.REDIS_URL)
-        r.ping()
-        info = r.info("memory")
-        results["redis"] = {
+        redis_client.ping()
+        info = redis_client.info("memory")
+        services["redis"] = {
             "status": "CONNECTED",
             "ok": True,
-            "memory_mb": round(info["used_memory"] / 1024 / 1024, 1),
+            "memory_mb": round(int(info["used_memory"]) / 1024 / 1024, 1),
         }
     except Exception as e:
-        results["redis"] = {"status": "ERROR", "ok": False, "error": str(e)}
+        logger.error(f"[Health] Redis check failed: {e}")
+        services["redis"] = {"status": "ERROR", "ok": False, "error": str(e)}
 
-    # Celery (check via Redis queue)
+    # Celery (check via Redis queue presence)
     try:
-        r = redis.from_url(settings.REDIS_URL)
-        celery_keys = r.keys("celery*")
-        results["celery_worker"] = {
+        celery_keys = redis_client.keys("celery*")
+        services["celery_worker"] = {
             "status": "RUNNING" if celery_keys is not None else "UNKNOWN",
             "ok": True,
         }
-        results["celery_beat"] = {"status": "RUNNING", "ok": True}
+        services["celery_beat"] = {"status": "RUNNING", "ok": True}
     except Exception as e:
-        results["celery_worker"] = {"status": "ERROR", "ok": False, "error": str(e)}
-        results["celery_beat"] = {"status": "ERROR", "ok": False}
+        services["celery_worker"] = {"status": "ERROR", "ok": False, "error": str(e)}
+        services["celery_beat"] = {"status": "ERROR", "ok": False}
 
     # Blockchain
     connected = blockchain_service.is_connected()
-    results["blockchain"] = {
+    services["blockchain"] = {
         "status": "SYNCED" if connected else "DISCONNECTED",
         "ok": connected,
         "network": "Polygon Mainnet",
         "latest_block": blockchain_service.get_latest_block() if connected else None,
     }
 
-    # NASA API (lightweight ping check)
     try:
-        import httpx
-        resp = httpx.get(
-            "https://power.larc.nasa.gov/api/temporal/daily/point",
-            params={"parameters": "ALLSKY_SFC_SW_DWN", "community": "RE",
-                    "longitude": 75.79, "latitude": 26.91,
-                    "start": "20250101", "end": "20250101", "format": "JSON"},
-            timeout=10.0,
+        bond = (
+            db.query(Bond)
+            .filter(Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY]))
+            .order_by(Bond.id)          # deterministic — always picks same bond
+            .first()
         )
-        results["nasa_api"] = {
-            "status": "OPERATIONAL" if resp.status_code == 200 else "DEGRADED",
-            "ok": resp.status_code == 200,
-            "latency_ms": round(resp.elapsed.total_seconds() * 1000),
-        }
-    except Exception as e:
-        results["nasa_api"] = {"status": "UNREACHABLE", "ok": False, "error": str(e)}
 
-    all_ok = all(v.get("ok", False) for v in results.values())
-    return {
+        if not bond:
+            services["nasa_api"] = {
+                "status": "SKIPPED",
+                "ok": True,  # Not a failure — just no bonds to ping with
+                "reason": "No active bonds found to use as ping coordinate",
+            }
+        else:
+            resp = httpx.get(
+                settings.NASA_API_BASE,
+                params={
+                    "parameters": settings.NASA_PARAMETER,
+                    "community": settings.NASA_COMMUNITY,
+                    "longitude": float(bond.lng),
+                    "latitude": float(bond.lat),
+                    "start": "20250101",
+                    "end": "20250101",
+                    "format": "JSON",
+                },
+                timeout=10.0,
+            )
+            services["nasa_api"] = {
+                "status": "OPERATIONAL" if resp.status_code == 200 else "DEGRADED",
+                "ok": resp.status_code == 200,
+                "latency_ms": round(resp.elapsed.total_seconds() * 1000),
+                # Show which bond we used — transparent for debugging
+                "ping_bond_id": bond.id,
+                "ping_coords": {"lat": float(bond.lat), "lng": float(bond.lng)},
+            }
+
+    except Exception as e:
+        logger.error(f"[Health] NASA API check failed: {e}")
+        services["nasa_api"] = {"status": "UNREACHABLE", "ok": False, "error": str(e)}
+
+
+    all_ok = all(v.get("ok", False) for v in services.values())
+    response = {
         "overall": "OPERATIONAL" if all_ok else "DEGRADED",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "services": results,
+        "services": services,
+        "cached": False,
     }
+
+    try:
+        redis_client.setex(HEALTH_CACHE_KEY, HEALTH_CACHE_TTL, json.dumps(response))
+    except Exception as e:
+        logger.warning(f"[Health] Could not write to cache: {e}")
+
+    return response

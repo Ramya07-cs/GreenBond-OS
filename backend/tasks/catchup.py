@@ -1,7 +1,3 @@
-
-#catchup.py — Missed Audit Recovery
-#Called automatically on every server startup via main.py lifespan hook.
-
 import logging
 from datetime import date, timedelta
 from typing import Optional
@@ -19,23 +15,6 @@ MAX_CATCHUP_DAYS = 30
 
 
 def catchup_missed_audits() -> dict:
-    """
-    Entry point called from main.py on startup.
-
-    Finds all gaps in audit history for active bonds and queues
-    run_daily_audit tasks to fill them in.
-
-    Returns a summary dict for logging:
-      {
-        "bonds_checked": 4,
-        "total_missed_days": 6,
-        "queued": [
-          {"bond_id": "GB-2024-001", "dates": ["2025-06-08", "2025-06-09"]},
-          ...
-        ],
-        "skipped_too_old": 1,   # bonds with gaps older than MAX_CATCHUP_DAYS
-      }
-    """
     # Late import to avoid circular import at module load time
     from tasks.daily_audit import run_daily_audit
 
@@ -132,17 +111,7 @@ def _find_missed_dates(
     up_to: date,
     cutoff: date,
 ) -> list[date]:
-    """
-    Return a sorted list of dates (oldest first) that have NO audit_log record
-    for the given bond, between cutoff and up_to inclusive.
-
-    Strategy:
-      1. Find the most recent audit log date for this bond
-      2. If never audited → start from cutoff
-      3. Walk day by day from the day after last audit to yesterday
-      4. Collect any date that doesn't have an existing audit record
-         (handles sparse gaps, not just trailing gaps)
-    """
+    
     # Find the last audited date for this bond
     last_audited: Optional[date] = (
         db.query(func.max(AuditLog.date))

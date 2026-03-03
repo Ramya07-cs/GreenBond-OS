@@ -1,26 +1,65 @@
 import logging
+import logging.config
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from config import settings
 from database import create_all_tables
 from routers import bonds, audit, alerts, production, blockchain, health
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
+# ── Sentry setup ──────────────────────────────────────────────────────────────
+def _init_sentry():
+    """
+    Sentry captures unhandled exceptions, slow transactions, and task failures.
+    """
+    if not settings.SENTRY_DSN:
+        logger.info("Sentry DSN not set — error monitoring disabled.")
+        return
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        from sentry_sdk.integrations.celery import CeleryIntegration
+
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            integrations=[
+                FastApiIntegration(transaction_style="endpoint"),
+                SqlalchemyIntegration(),
+                CeleryIntegration(),
+            ],
+            traces_sample_rate=0.2,     # 20% of requests traced for performance
+            environment="production" if not settings.DEBUG else "development",
+            release=f"greenbond-os@1.0.0",
+        )
+        logger.info("Sentry initialized.")
+    except ImportError:
+        logger.warning("sentry-sdk not installed — skipping Sentry init. pip install sentry-sdk")
+    except Exception as e:
+        logger.error(f"Sentry init failed: {e}")
+
+
+_init_sentry()
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    
-    #Runs on startup and shutdown.
-
-    logger.info(f" {settings.APP_NAME} starting up...")
+    logger.info(f"{settings.APP_NAME} starting up...")
 
     if settings.DEBUG:
-        create_all_tables()  # Auto-create tables in dev
+        create_all_tables()  # Auto-create tables
 
     # ── CATCHUP: fill in any audit gaps caused by downtime ──────────────────
-    # Import here to avoid circular imports at module load time
     try:
         from tasks.catchup import catchup_missed_audits
         logger.info("Running startup catchup check for missed audits...")
@@ -28,7 +67,7 @@ async def lifespan(app: FastAPI):
 
         if summary["total_missed_days"] > 0:
             logger.warning(
-                f" Catchup queued {summary['total_missed_days']} missed audit(s) "
+                f"Catchup queued {summary['total_missed_days']} missed audit(s) "
                 f"across {len(summary['queued'])} bond(s). "
                 f"Celery workers will process them in the background."
             )
@@ -42,9 +81,8 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         # NEVER let a catchup failure block the server from starting.
-        # Log the error loudly, but continue.
         logger.error(
-            f"Startup catchup failed with an unexpected error: {e}. "
+            f"Startup catchup failed: {e}. "
             f"Server will continue — trigger manual catchup via /audit/catchup if needed.",
             exc_info=True,
         )
@@ -54,6 +92,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"{settings.APP_NAME} shutting down.")
 
 
+# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
     description=(
