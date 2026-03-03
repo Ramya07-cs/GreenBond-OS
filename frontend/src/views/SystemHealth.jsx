@@ -20,6 +20,17 @@ export default function SystemHealth() {
     { key: "nasa_api", label: "NASA POWER API", icon: "🛰️" },
   ];
 
+  // Build a subtitle line for each service from the fields the backend actually returns
+  function svcDetail(svc = {}) {
+    if (svc.memory_mb != null) return `Memory: ${svc.memory_mb} MB`;
+    // blockchain returns latest_block (not latency_ms)
+    if (svc.latest_block != null) return `Block #${svc.latest_block?.toLocaleString()} · ${svc.network || ""}`;
+    if (svc.latency_ms != null) return `Latency: ${svc.latency_ms} ms`;
+    if (svc.ping_bond_id) return `Pinged via ${svc.ping_bond_id}`;
+    if (svc.reason) return svc.reason;
+    return "";
+  }
+
   return (
     <div>
       {/* Overall status banner */}
@@ -41,17 +52,17 @@ export default function SystemHealth() {
         </button>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs — only show live data, no hardcoded placeholders */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 14 }}>
         {[
-          { l: "Last Audit", v: "06:05 AM", c: "var(--green)", s: "Today · 0 errors" },
-          { l: "Uptime", v: "99.8%", c: "var(--green)", s: "12 days continuous" },
-          { l: "Celery Queue", v: "0", c: "var(--text)", s: "Tasks pending" },
-          { l: "Blockchain Latency", v: services.blockchain?.latency_ms ? `${services.blockchain.latency_ms}ms` : "1.2s", c: "var(--cyan)", s: "Polygon response" },
+          { l: "PostgreSQL", v: services.postgresql?.ok ? "ONLINE" : "OFFLINE", c: services.postgresql?.ok ? "var(--green)" : "var(--red)", s: services.postgresql?.status || "—" },
+          { l: "Redis Memory", v: services.redis?.memory_mb != null ? `${services.redis.memory_mb} MB` : "—", c: services.redis?.ok ? "var(--green)" : "var(--red)", s: services.redis?.status || "—" },
+          { l: "Celery Queue", v: services.celery_worker?.ok ? "RUNNING" : "DOWN", c: services.celery_worker?.ok ? "var(--green)" : "var(--red)", s: "Worker status" },
+          { l: "Blockchain Block", v: services.blockchain?.latest_block != null ? `#${services.blockchain.latest_block.toLocaleString()}` : "—", c: services.blockchain?.ok ? "var(--cyan)" : "var(--red)", s: services.blockchain?.network || "Polygon" },
         ].map(k => (
           <div key={k.l} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: "14px 16px", position: "relative", overflow: "hidden" }}>
             <div style={{ fontSize: 9, letterSpacing: ".15em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 8 }}>{k.l}</div>
-            <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: k.c }}>{k.v}</div>
+            <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: k.c }}>{isLoading ? "…" : k.v}</div>
             <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 4 }}>{k.s}</div>
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: k.c }} />
           </div>
@@ -70,7 +81,7 @@ export default function SystemHealth() {
                 <div>
                   <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>{icon} {label}</div>
                   <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 2, fontFamily: "var(--mono)" }}>
-                    {svc.network || svc.memory_mb ? `Memory: ${svc.memory_mb}MB` : svc.latest_block ? `Block #${svc.latest_block?.toLocaleString()}` : svc.latency_ms ? `Latency: ${svc.latency_ms}ms` : ""}
+                    {svcDetail(svc)}
                   </div>
                 </div>
                 <div style={{ fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 5, color: ok ? "var(--green)" : "var(--red)" }}>
@@ -83,25 +94,31 @@ export default function SystemHealth() {
         </div>
       </div>
 
-      {/* System Log */}
-      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>📋 Recent System Logs</div>
-        <div style={{ background: "var(--void)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "12px 14px", fontFamily: "var(--mono)", fontSize: 10, lineHeight: 2, color: "var(--text2)" }}>
-          {[
-            { t: "06:05:11", c: "var(--green)", m: "[INFO] Monitoring job completed successfully for all active bonds" },
-            { t: "06:04:07", c: "var(--cyan)", m: "[CHAIN] TX confirmed on Polygon Amoy Testnet — Block #58,291,047" },
-            { t: "06:01:03", c: "var(--blue)", m: "[CHAIN] Submitting rate change transaction for GB-2024-001..." },
-            { t: "06:00:15", c: "var(--red)", m: "[VERDICT] GB-2024-001 → PENALTY | PR: 0.61 | Streak: 3/3 → Rate hike" },
-            { t: "06:00:14", c: "var(--green)", m: "[NASA] GHI data fetched for all bonds — HTTP 200 OK" },
-            { t: "06:00:00", c: "var(--text3)", m: "[BEAT] Scheduled audit triggered by Celery Beat scheduler" },
-          ].map((l, i) => (
-            <div key={i} style={{ borderBottom: i < 5 ? "1px solid var(--border)" : "none", padding: "0 0 2px" }}>
-              <span style={{ color: "var(--text3)" }}>{l.t}</span>
-              <span style={{ color: l.c, marginLeft: 12 }}>{l.m}</span>
-            </div>
-          ))}
+      {/* NASA Ping Details */}
+      {services.nasa_api?.ping_bond_id && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 10 }}>🛰️ NASA API Ping Details</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+            {[
+              { l: "Pinged Bond", v: services.nasa_api.ping_bond_id },
+              { l: "Coordinates", v: services.nasa_api.ping_coords ? `${services.nasa_api.ping_coords.lat}°N, ${services.nasa_api.ping_coords.lng}°E` : "—" },
+              { l: "Latency", v: services.nasa_api.latency_ms != null ? `${services.nasa_api.latency_ms} ms` : "—" },
+            ].map(f => (
+              <div key={f.l} style={{ background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "10px 12px" }}>
+                <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 4 }}>{f.l}</div>
+                <div style={{ fontSize: 12, color: "var(--cyan)", fontWeight: 600, fontFamily: "var(--mono)" }}>{f.v}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Cached indicator */}
+      {health?.cached && (
+        <div style={{ padding: "8px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--text3)", fontFamily: "var(--mono)" }}>
+          ⚡ Showing cached result — refreshes automatically every 60s on the server
+        </div>
+      )}
     </div>
   );
 }

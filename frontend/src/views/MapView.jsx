@@ -37,7 +37,7 @@ export default function MapView({ onSelectBond }) {
 
         {/* Bond Pins */}
         {bonds.map(b => {
-          const { x, y } = toXY(b.lat || b.coords?.lat, b.lng || b.coords?.lng);
+          const { x, y } = toXY(b.lat, b.lng);
           const color = STATUS_COLOR[b.status] || "var(--slate)";
           return (
             <div

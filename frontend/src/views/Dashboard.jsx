@@ -1,7 +1,7 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { useBonds } from "../hooks/useBonds";
-import { fetchAlertSummary, fetchTimeseries } from "../api";
+import { fetchAlertSummary, fetchTimeseries, fetchDashboardSummary } from "../api";
 import StatusBadge from "../components/StatusBadge";
 
 function KPI({ label, value, sub, color, barColor }) {
@@ -17,14 +17,25 @@ function KPI({ label, value, sub, color, barColor }) {
 
 export default function Dashboard({ onSelectBond }) {
   const { data: bonds = [], isLoading } = useBonds();
+  // Use the dedicated cached dashboard summary endpoint (2-min TTL, invalidated after audits)
+  const { data: summary } = useQuery({
+    queryKey: ["dashboard-summary"],
+    queryFn: fetchDashboardSummary,
+    refetchInterval: 120_000,
+  });
   const { data: alertSummary } = useQuery({ queryKey: ["alert-summary"], queryFn: fetchAlertSummary });
 
+  // Use backend-computed values where available, fall back to client-side for bond table filtering
   const active = bonds.filter(b => b.status !== "MATURED");
   const penalty = bonds.filter(b => b.status === "PENALTY");
-  const tvl = bonds.reduce((s, b) => s + (b.tvl || 0), 0);
-  const avgPR = active.length
-    ? active.filter(b => b.today_pr).reduce((s, b) => s + b.today_pr, 0) / active.filter(b => b.today_pr).length
-    : 0;
+  const tvl = summary?.tvl ?? bonds.reduce((s, b) => s + (b.tvl || 0), 0);
+  const avgPR = summary?.avg_pr_today ?? (
+    active.filter(b => b.today_pr).length
+      ? active.filter(b => b.today_pr).reduce((s, b) => s + b.today_pr, 0) / active.filter(b => b.today_pr).length
+      : 0
+  );
+  const activeCount = summary?.active ?? active.length;
+  const penaltyCount = summary?.penalty ?? penalty.length;
 
   if (isLoading) return <div style={{ padding: 40, color: "var(--text2)", fontFamily: "var(--mono)", fontSize: 12 }}>Loading portfolio...</div>;
 
@@ -32,9 +43,9 @@ export default function Dashboard({ onSelectBond }) {
     <div>
       {/* KPI Row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
-        <KPI label="📊 Active Bonds" value={active.length} sub={`${bonds.length} total`} color="var(--green)" />
+        <KPI label="📊 Active Bonds" value={activeCount} sub={`${summary?.total_bonds ?? bonds.length} total`} color="var(--green)" />
         <KPI label="💰 Total Value Locked" value={`₹${(tvl / 1e7).toFixed(1)}Cr`} sub="across portfolio" color="var(--text)" barColor="var(--amber)" />
-        <KPI label="🚨 Under Penalty" value={penalty.length} sub={penalty.length ? "Rate hike active" : "All compliant"} color={penalty.length ? "var(--red)" : "var(--green)"} barColor={penalty.length ? "var(--red)" : "var(--green)"} />
+        <KPI label="🚨 Under Penalty" value={penaltyCount} sub={penaltyCount ? "Rate hike active" : "All compliant"} color={penaltyCount ? "var(--red)" : "var(--green)"} barColor={penaltyCount ? "var(--red)" : "var(--green)"} />
         <KPI label="📈 Avg PR" value={avgPR ? `${(avgPR * 100).toFixed(1)}%` : "—"} sub="threshold 75%" color={avgPR >= 0.75 ? "var(--green)" : "var(--red)"} barColor={avgPR >= 0.75 ? "var(--green)" : "var(--red)"} />
         <KPI label="🔔 Critical Alerts" value={alertSummary?.unread_critical || 0} sub="today" color={alertSummary?.unread_critical ? "var(--red)" : "var(--green)"} barColor="var(--cyan)" />
       </div>
@@ -45,9 +56,9 @@ export default function Dashboard({ onSelectBond }) {
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🗺️ Portfolio Health</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
             {[
-              { l: "Penalty", n: penalty.length, c: "var(--red)", bg: "var(--red-dim)" },
-              { l: "Active", n: bonds.filter(b => b.status === "ACTIVE").length, c: "var(--green)", bg: "var(--green-dim)" },
-              { l: "Matured", n: bonds.filter(b => b.status === "MATURED").length, c: "var(--slate)", bg: "rgba(84,110,122,.1)" },
+              { l: "Penalty", n: penaltyCount, c: "var(--red)", bg: "var(--red-dim)" },
+              { l: "Active", n: activeCount, c: "var(--green)", bg: "var(--green-dim)" },
+              { l: "Matured", n: summary?.matured ?? bonds.filter(b => b.status === "MATURED").length, c: "var(--slate)", bg: "rgba(84,110,122,.1)" },
             ].map(h => (
               <div key={h.l} style={{ background: h.bg, border: `1px solid ${h.c}33`, borderRadius: "var(--r2)", padding: "14px 12px" }}>
                 <div style={{ fontFamily: "var(--display)", fontSize: 28, fontWeight: 800, color: h.c }}>{h.n}</div>
@@ -56,11 +67,11 @@ export default function Dashboard({ onSelectBond }) {
             ))}
           </div>
           <div style={{ marginTop: 14, height: 3, background: "var(--border)", borderRadius: 2 }}>
-            <div style={{ height: "100%", width: `${active.length ? (bonds.filter(b => b.status === "ACTIVE").length / active.length) * 100 : 0}%`, background: "var(--green)", borderRadius: 2 }} />
+            <div style={{ height: "100%", width: `${activeCount ? (activeCount / (summary?.total_bonds ?? bonds.length)) * 100 : 0}%`, background: "var(--green)", borderRadius: 2 }} />
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: "var(--text3)" }}>
             <span>Compliance Rate</span>
-            <span style={{ color: "var(--green)", fontWeight: 700 }}>{active.length ? ((bonds.filter(b => b.status === "ACTIVE").length / active.length) * 100).toFixed(0) : 0}%</span>
+            <span style={{ color: "var(--green)", fontWeight: 700 }}>{activeCount && (summary?.total_bonds ?? bonds.length) ? ((activeCount / (summary?.total_bonds ?? bonds.length)) * 100).toFixed(0) : 0}%</span>
           </div>
         </div>
 

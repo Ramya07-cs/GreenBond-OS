@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchBlockchainStatus } from "../api";
+import { fetchBlockchainStatus, fetchAlertSummary } from "../api";
 
 export default function Topbar({ title, subtitle, onBack, onAlerts }) {
   const { data: chain } = useQuery({
@@ -8,6 +8,16 @@ export default function Topbar({ title, subtitle, onBack, onAlerts }) {
     refetchInterval: 60_000,
     retry: false,
   });
+
+  // Live unread critical alert count for the bell badge
+  const { data: alertSummary } = useQuery({
+    queryKey: ["alert-summary"],
+    queryFn: fetchAlertSummary,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+
+  const unreadCount = alertSummary?.unread_critical ?? 0;
 
   return (
     <div style={{
@@ -44,7 +54,7 @@ export default function Topbar({ title, subtitle, onBack, onAlerts }) {
           🔗 {chain?.connected ? `POLYGON · #${chain.latest_block?.toLocaleString()}` : "CONNECTING..."}
         </div>
 
-        {/* Bell */}
+        {/* Bell with live unread count */}
         <div
           onClick={onAlerts}
           style={{
@@ -57,9 +67,18 @@ export default function Topbar({ title, subtitle, onBack, onAlerts }) {
           onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
         >
           🔔
-          <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", background: "var(--red)", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", border: "2px solid var(--void)", fontFamily: "var(--mono)" }}>
-            2
-          </div>
+          {unreadCount > 0 && (
+            <div style={{
+              position: "absolute", top: -4, right: -4,
+              minWidth: 16, height: 16, borderRadius: 8,
+              background: "var(--red)", fontSize: 9, fontWeight: 700,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", border: "2px solid var(--void)", fontFamily: "var(--mono)",
+              padding: "0 3px",
+            }}>
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </div>
+          )}
         </div>
       </div>
     </div>
