@@ -238,7 +238,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
               {[
                 { l: "Gas Used", v: latestAudit?.gas_used?.toLocaleString() || "—" },
                 { l: "Block Number", v: latestAudit?.block_number?.toLocaleString() || "—" },
-                { l: "Network", v: "Polygon Mainnet" },
+                { l: "Network", v: "Polygon Amoy Testnet" },
                 { l: "Status", v: latestAudit?.blockchain_tx_hash ? "✅ CONFIRMED" : "—" },
               ].map(t => (
                 <div key={t.l} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: 10 }}>

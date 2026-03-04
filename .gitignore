@@ -1,12 +1,29 @@
-# Virtual Environment
-venv/
-*.pyc 
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+.idea/
+.vscode/
 
-.venv/
-.vnev/
-env/
-.env
-ENV/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+backend/venv/
+backend/.env
 
-# Environment variables
-.env
+# Celery beat schedule files
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
+
+# Node 
+frontend/node_modules/
+frontend/.env
+frontend/dist/
+frontend/build/
+
+
+# Docker
+docker-compose.override.yml

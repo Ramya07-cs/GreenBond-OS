@@ -55,7 +55,6 @@ def trigger_manual_audit(
     target_date: Optional[str] = None,
     bond_id: Optional[str] = None,
 ):
-
     from tasks.daily_audit import run_daily_audit
     task = run_daily_audit.delay(target_date=target_date)
     return {

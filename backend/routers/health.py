@@ -26,6 +26,7 @@ def system_health(db: Session = Depends(get_db)):
         result["cached"] = True
         return result
 
+    # ── 2. Run all checks live ────────────────────────────────────────────────
     services = {}
 
     # PostgreSQL
@@ -70,6 +71,7 @@ def system_health(db: Session = Depends(get_db)):
         "latest_block": blockchain_service.get_latest_block() if connected else None,
     }
 
+    # ── 3. NASA ping — dynamic bond coordinate ────────────────────────────────
     try:
         bond = (
             db.query(Bond)
@@ -111,7 +113,7 @@ def system_health(db: Session = Depends(get_db)):
         logger.error(f"[Health] NASA API check failed: {e}")
         services["nasa_api"] = {"status": "UNREACHABLE", "ok": False, "error": str(e)}
 
-
+    # ── 4. Build final response ───────────────────────────────────────────────
     all_ok = all(v.get("ok", False) for v in services.values())
     response = {
         "overall": "OPERATIONAL" if all_ok else "DEGRADED",
@@ -120,6 +122,7 @@ def system_health(db: Session = Depends(get_db)):
         "cached": False,
     }
 
+    # ── 5. Cache result ───────────────────────────────────────────────────────
     try:
         redis_client.setex(HEALTH_CACHE_KEY, HEALTH_CACHE_TTL, json.dumps(response))
     except Exception as e:

@@ -244,56 +244,7 @@ npm run dev
 
 Create a `.env` file in the project root. See `.env.example` for all options.
 
-```env
-# ── DATABASE ──────────────────────────────────────────────────
-DATABASE_URL=postgresql://user:password@localhost:5432/greenbonds
-
-# ── REDIS ─────────────────────────────────────────────────────
-REDIS_URL=redis://localhost:6379/0
-
-# ── BLOCKCHAIN (Polygon) ──────────────────────────────────────
-POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
-WALLET_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
-CONTRACT_ADDRESS=0xYOUR_DEPLOYED_CONTRACT_ADDRESS
-
-# ── NASA POWER API ────────────────────────────────────────────
-NASA_API_BASE=https://power.larc.nasa.gov/api/temporal/daily/point
-NASA_PARAMETERS=ALLSKY_SFC_SW_DWN      # GHI parameter
-
-# ── ALERTS ────────────────────────────────────────────────────
-TWILIO_ACCOUNT_SID=ACxxxxxx
-TWILIO_AUTH_TOKEN=xxxxxxxx
-TWILIO_FROM_NUMBER=+1xxxxxxxxxx
-
-SENDGRID_API_KEY=SG.xxxxxxxx
-ALERT_FROM_EMAIL=alerts@yourdomain.com
-
-# ── APP ───────────────────────────────────────────────────────
-SECRET_KEY=your-secret-key-here
-DEBUG=false
-CORS_ORIGINS=http://localhost:5173,https://yourdomain.com
-
-# ── CELERY ────────────────────────────────────────────────────
-CELERY_TIMEZONE=Asia/Kolkata
-AUDIT_CRON_HOUR=6
-AUDIT_CRON_MINUTE=0
-```
-
 ---
-
-## Backend: FastAPI
-
-The backend exposes a REST API consumed by the React frontend. All endpoints return JSON.
-
-### Running
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
-# Interactive docs: http://localhost:8000/docs
-````
-
----
-
 ## Frontend: React
 
 Built with React 18 + Vite. Bloomberg Terminal aesthetic using IBM Plex Mono and Barlow Condensed typefaces.

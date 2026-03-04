@@ -61,7 +61,7 @@ class AlertService:
         """Send full penalty notification via SMS + Email."""
         results = {}
 
-        subject = f"PENALTY TRIGGERED — {bond_name} ({bond_id})"
+        subject = f"⚠️ PENALTY TRIGGERED — {bond_name} ({bond_id})"
         sms_body = (
             f"GreenBond Alert: {bond_name} ({bond_id})\n"
             f"Rate hiked {previous_rate}% → {new_rate}% after "
@@ -108,7 +108,7 @@ class AlertService:
         """Send recovery confirmation via Email."""
         results = {}
 
-        subject = f"RECOVERY CONFIRMED — {bond_name} ({bond_id})"
+        subject = f"✅ RECOVERY CONFIRMED — {bond_name} ({bond_id})"
         html_body = f"""
         <div style="font-family:monospace;background:#0a0a0a;color:#e8f0fe;padding:24px;border-radius:8px">
           <h2 style="color:#00E676">✅ RECOVERY CONFIRMED</h2>
@@ -183,7 +183,10 @@ class AlertService:
         issuer_email: Optional[str],
         issuer_phone: Optional[str],
     ) -> dict:
-    
+        """
+        Alert sent when a bond reaches its maturity date.
+        Includes final performance summary.
+        """
         results = {}
         pr_display = f"{round(final_avg_pr * 100, 1)}%" if final_avg_pr else "N/A"
 

@@ -123,8 +123,8 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 
     active_bonds = db.query(Bond).filter(Bond.status != BondStatus.MATURED).all()
     active_prs = [
-        float(b_pr)
-        for b_pr in (
+        float(row.calculated_pr)
+        for row in (
             db.query(AuditLog.calculated_pr)
             .join(Bond, Bond.id == AuditLog.bond_id)
             .filter(Bond.status != BondStatus.MATURED)
@@ -132,7 +132,6 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
             .filter(AuditLog.calculated_pr.isnot(None))
             .all()
         )
-        for b_pr in b_pr  # unpack the tuple
     ]
 
     summary = {

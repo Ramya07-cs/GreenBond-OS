@@ -18,9 +18,6 @@ logger = logging.getLogger(__name__)
 
 # ── Sentry setup ──────────────────────────────────────────────────────────────
 def _init_sentry():
-    """
-    Sentry captures unhandled exceptions, slow transactions, and task failures.
-    """
     if not settings.SENTRY_DSN:
         logger.info("Sentry DSN not set — error monitoring disabled.")
         return
@@ -56,8 +53,9 @@ _init_sentry()
 async def lifespan(app: FastAPI):
     logger.info(f"{settings.APP_NAME} starting up...")
 
-    if settings.DEBUG:
-        create_all_tables()  # Auto-create tables
+    from models import Bond, AuditLog, Alert, ProductionEntry  
+    create_all_tables()
+    logger.info("Database tables verified.")
 
     # ── CATCHUP: fill in any audit gaps caused by downtime ──────────────────
     try:
