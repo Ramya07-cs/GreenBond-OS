@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useBonds } from "../hooks/useBonds";
+import { fetchSystemHealth } from "../api";
 
 const NAV = [
   { id: "dashboard", icon: "📊", label: "Dashboard" },
@@ -9,15 +11,25 @@ const NAV = [
   { id: "health",    icon: "🖥️", label: "System Health" },
 ];
 
-const SYS = [
-  { label: "Celery", key: "celery" },
+// Keys to show in the sidebar footer. These match the service keys
+const SYS_CHECKS = [
+  { label: "Celery", key: "celery_worker" },
   { label: "Redis",  key: "redis" },
-  { label: "Beat",   key: "beat" },
+  { label: "Beat",   key: "celery_beat" },
 ];
 
 export default function Sidebar({ view, onNav, onBond, selectedBond }) {
   const { data: bonds = [] } = useBonds();
   const [clock, setClock] = useState(new Date());
+
+  // Poll the health endpoint every 30s — same interval as SystemHealth view.
+  const { data: health } = useQuery({
+    queryKey: ["system-health"],
+    queryFn: fetchSystemHealth,
+    refetchInterval: 30_000,
+    retry: false,
+    throwOnError: false,
+  });
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
@@ -25,6 +37,13 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
   }, []);
 
   const statusColor = { PENALTY: "var(--red)", ACTIVE: "var(--green)", MATURED: "var(--slate)" };
+
+  function svcStatus(key) {
+    if (!health) return { ok: null, label: "..." };
+    const svc = health.services?.[key];
+    if (!svc) return { ok: false, label: "N/A" };
+    return { ok: svc.ok !== false, label: svc.ok !== false ? "OK" : "ERR" };
+  }
 
   return (
     <aside style={{ width: 220, background: "var(--surface)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
@@ -84,18 +103,27 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
         ))}
       </nav>
 
-      {/* Footer */}
+      {/* Footer — live system status from /api/health */}
       <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
         <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", marginBottom: 5, textTransform: "uppercase" }}>System</div>
-        {SYS.map(s => (
-          <div key={s.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
-            <span style={{ fontSize: 10, color: "var(--text2)" }}>{s.label}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: "var(--green)" }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", animation: "pulse 2s infinite" }} />
-              OK
+        {SYS_CHECKS.map(s => {
+          const { ok, label } = svcStatus(s.key);
+          const dotColor = ok === null ? "var(--text3)" : ok ? "var(--green)" : "var(--red)";
+          const textColor = ok === null ? "var(--text3)" : ok ? "var(--green)" : "var(--red)";
+          return (
+            <div key={s.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+              <span style={{ fontSize: 10, color: "var(--text2)" }}>{s.label}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: textColor }}>
+                <div style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: dotColor,
+                  animation: ok === true ? "pulse 2s infinite" : "none",
+                }} />
+                {label}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--border)" }}>
           <span style={{ fontSize: 10, color: "var(--text3)", fontFamily: "var(--mono)" }}>{clock.toLocaleTimeString("en-IN")}</span>
           <span style={{ fontSize: 9, color: "var(--text3)" }}>IST</span>

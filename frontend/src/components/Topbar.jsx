@@ -51,7 +51,9 @@ export default function Topbar({ title, subtitle, onBack, onAlerts }) {
 
         {/* Chain status */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 100, border: "1px solid rgba(33,150,243,.25)", background: "var(--blue-dim)", fontSize: 10, color: "var(--blue)" }}>
-          🔗 {chain?.connected ? `POLYGON · #${chain.latest_block?.toLocaleString()}` : "CONNECTING..."}
+          🔗 {chain?.connected
+            ? `${chain.network || "POLYGON"} · #${chain.latest_block?.toLocaleString()}`
+            : "CONNECTING..."}
         </div>
 
         {/* Bell with live unread count */}

@@ -62,7 +62,7 @@ export default function DataEntry() {
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {[
                   { n: 1, l: "Select Bond", el: (
-                    <select className="form-select" value={form.bond_id} onChange={e => setForm(f => ({ ...f, bond_id: e.target.value }))}
+                    <select value={form.bond_id} onChange={e => setForm(f => ({ ...f, bond_id: e.target.value }))}
                       style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "9px 12px", color: "var(--text)", fontSize: 12, outline: "none", width: "100%" }}>
                       <option value="">— Select bond —</option>
                       {bonds.map(b => <option key={b.id} value={b.id}>{b.id} — {b.name}</option>)}
@@ -138,24 +138,56 @@ export default function DataEntry() {
       )}
 
       {mode === "iot" && (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🌐 IoT Device Status</div>
-          {[
-            { id: "INV-001", bond: "GB-2024-001", name: "Sungrow SG5.0RS", last: "06:00 AM", status: "ONLINE" },
-            { id: "INV-002", bond: "GB-2024-002", name: "Huawei SUN2000-8KTL", last: "06:01 AM", status: "ONLINE" },
-            { id: "INV-003", bond: "GB-2024-003", name: "SMA Sunny Tripower", last: "Yesterday 23:14", status: "STALE" },
-          ].map(d => (
-            <div key={d.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", marginBottom: 8 }}>
-              <div>
-                <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>{d.status === "ONLINE" ? "📡" : "⚠️"} {d.name} <span style={{ fontSize: 9, color: "var(--text3)" }}>({d.id})</span></div>
-                <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 2 }}>Bond: {d.bond} · Last sync: {d.last}</div>
-              </div>
-              <div style={{ fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 5, color: d.status === "ONLINE" ? "var(--green)" : "var(--amber)" }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: d.status === "ONLINE" ? "var(--green)" : "var(--amber)", animation: "pulse 2s infinite" }} />
-                {d.status}
-              </div>
+        <div>
+          {/* IoT note — no hardcoded bond IDs; shows real bonds from DB */}
+          <div style={{ padding: "10px 14px", background: "var(--amber-dim)", border: "1px solid rgba(255,179,0,.25)", borderRadius: "var(--r2)", marginBottom: 14, fontSize: 11, color: "var(--text2)", lineHeight: 1.7 }}>
+            📡 <strong style={{ color: "var(--amber)" }}>IoT Auto-Sync:</strong> Inverters push data via{" "}
+            <code style={{ fontFamily: "var(--mono)", fontSize: 10, background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>POST /api/production/iot</code>.
+            Each payload must include a <code style={{ fontFamily: "var(--mono)", fontSize: 10, background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>bond_id</code> matching one of your registered bonds below.
+          </div>
+
+          {/* Show real bonds from the database as sync targets */}
+          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🌐 Bond IoT Targets</div>
+            {bonds.length === 0 ? (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>No bonds registered yet. Create a bond first.</div>
+            ) : (
+              bonds.map(b => (
+                <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                      📡 {b.name}
+                      <span style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)" }}>({b.id})</span>
+                    </div>
+                    <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 3, fontFamily: "var(--mono)" }}>
+                      Endpoint: POST /api/production/iot · body: {"{"} bond_id: "{b.id}", date, kwh {"}"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: b.status === "ACTIVE" ? "var(--green)" : "var(--slate)" }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: b.status === "ACTIVE" ? "var(--green)" : "var(--slate)", animation: b.status === "ACTIVE" ? "pulse 2s infinite" : "none" }} />
+                    {b.status}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Example curl command, always uses the first active bond if available */}
+          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>📋 Example IoT Push</div>
+            <pre style={{ background: "var(--void)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "12px 14px", fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", lineHeight: 1.8, overflowX: "auto", whiteSpace: "pre-wrap" }}>
+{`curl -X POST http://localhost:8000/api/production/iot \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "bond_id": "${bonds[0]?.id || "GB-XXXX-XXX"}",
+    "date": "${new Date().toISOString().split("T")[0]}",
+    "kwh": 24800.0
+  }'`}
+            </pre>
+            <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 8 }}>
+              The backend validates bond_id exists in the database, stores the reading, and uses it in the next 6 AM audit.
             </div>
-          ))}
+          </div>
         </div>
       )}
     </div>

@@ -4,7 +4,7 @@ import {
   AreaChart, Area, LineChart, Line, ComposedChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { fetchAuditLogs, fetchTimeseries } from "../api";
+import { fetchAuditLogs, fetchTimeseries, fetchBlockchainStatus } from "../api";
 import { useBond } from "../hooks/useBonds";
 import StatusBadge from "../components/StatusBadge";
 import StreakTracker from "../components/StreakTracker";
@@ -35,6 +35,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
   const { data: bond = initialBond } = useBond(initialBond.id);
   const { data: ts } = useQuery({ queryKey: ["timeseries", bond.id, 60], queryFn: () => fetchTimeseries(bond.id, 60) });
   const { data: auditData } = useQuery({ queryKey: ["audit", bond.id], queryFn: () => fetchAuditLogs({ bond_id: bond.id, limit: 20 }) });
+  const { data: chainStatus } = useQuery({ queryKey: ["blockchain-status"], queryFn: fetchBlockchainStatus, refetchInterval: 60_000, retry: false });
   const latestAudit = auditData?.logs?.[0];
   const isP = bond.status === "PENALTY";
   const perfSeries = ts?.perf_series || [];
@@ -238,8 +239,8 @@ export default function BondDetail({ bond: initialBond, onBack }) {
               {[
                 { l: "Gas Used", v: latestAudit?.gas_used?.toLocaleString() || "—" },
                 { l: "Block Number", v: latestAudit?.block_number?.toLocaleString() || "—" },
-                { l: "Network", v: "Polygon Amoy Testnet" },
-                { l: "Status", v: latestAudit?.blockchain_tx_hash ? "✅ CONFIRMED" : "—" },
+                { l: "Network", v: chainStatus?.network || "Polygon Amoy Testnet" },
+                { l: "Status", v: latestAudit?.blockchain_tx_hash ? "✅ CONFIRMED" : chainStatus?.connected === false ? "⚠ Not Connected" : "—" },
               ].map(t => (
                 <div key={t.l} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: 10 }}>
                   <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 4 }}>{t.l}</div>
@@ -265,7 +266,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
               { t: "06:00:14", e: `GHI received: ${latestAudit?.nasa_ghi || "—"} kWh/m² · HTTP 200 OK`, tag: "SUCCESS", c: "var(--green)" },
               { t: "06:00:15", e: `Production data fetched from PostgreSQL for ${bond.id}`, tag: "DB QUERY", c: "var(--amber)" },
               { t: "06:00:15", e: `PR calculated: ${latestAudit?.calculated_pr?.toFixed(4) || "—"} → verdict: ${latestAudit?.verdict || "—"}`, tag: "COMPUTE", c: "var(--cyan)" },
-              { t: "06:01:03", e: "Smart contract write initiated — Polygon Mainnet", tag: "BLOCKCHAIN", c: "var(--blue)" },
+              { t: "06:01:03", e: `Smart contract write initiated — ${chainStatus?.network || "Polygon Amoy Testnet"}`, tag: "BLOCKCHAIN", c: "var(--blue)" },
               { t: "06:04:07", e: `TX confirmed: ${latestAudit?.blockchain_tx_hash?.slice(0,20) || "—"}...`, tag: "CONFIRMED", c: "var(--green)" },
               { t: "06:05:01", e: "Alert pipeline triggered — Email + SMS queued", tag: "ALERT", c: "var(--amber)" },
               { t: "06:05:10", e: "Audit record written to PostgreSQL with TX hash", tag: "LOGGED", c: "var(--text3)" },
