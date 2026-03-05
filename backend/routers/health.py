@@ -67,7 +67,7 @@ def system_health(db: Session = Depends(get_db)):
     services["blockchain"] = {
         "status": "SYNCED" if connected else "DISCONNECTED",
         "ok": connected,
-        "network": "Polygon Mainnet",
+        "network": "Polygon Amoy Testnet",
         "latest_block": blockchain_service.get_latest_block() if connected else None,
     }
 

@@ -79,12 +79,12 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
     logger.info(f"Auditing {bond.id} ({bond.name})")
 
     # ── Step 1: Fetch NASA GHI (Redis-cached) ────────────────────────────────
-    nasa_ghi = asyncio.get_event_loop().run_until_complete(
+    nasa_ghi = asyncio.run(
         nasa_service.get_ghi(
             float(bond.lat),
             float(bond.lng),
             audit_date,
-            bond_id=bond.id,   # Passed so cache key is namespaced per bond
+            bond_id=bond.id,   # Namespaces the Redis cache key per bond
         )
     )
     logger.info(f"  NASA GHI: {nasa_ghi} kWh/m²")
@@ -101,6 +101,16 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
     actual_kwh = float(production.kwh) if production else None
     logger.info(f"  Actual kWh: {actual_kwh}")
 
+    # ── Step 2b: NASA lag + user data submitted = PENDING, retry later ────────
+    # If user submitted production data but NASA hasn't caught up yet,don't mark as IGNORED — mark as PENDING so catchup retries it tomorrow.
+    if actual_kwh is not None and nasa_ghi is None:
+        logger.warning(
+            f"  {bond.id} on {audit_date}: user data exists ({actual_kwh} kWh) "
+            f"but NASA GHI not yet available (data lag). Skipping — will retry tomorrow."
+        )
+        # Do NOT write an audit log — absence means catchup will retry this date
+        return
+
     # ── Step 3: Missing data alert ────────────────────────────────────────────
     if actual_kwh is None:
         consecutive_missing = _count_consecutive_missing(db, bond.id, audit_date)
@@ -114,15 +124,19 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
             "consecutive_missing": consecutive_missing,
         })
 
-        # Send missing data notification (escalates to SMS at 3+ days)
-        alert_service.send_missing_data_alert(
-            bond_id=bond.id,
-            bond_name=bond.name,
-            missing_date=str(audit_date),
-            consecutive_missing=consecutive_missing,
-            issuer_email=bond.issuer_email,
-            issuer_phone=bond.issuer_phone,
-        )
+        # Only alert on day 1 and every 3rd day — prevents email spam during catchup
+        should_alert = (consecutive_missing == 1) or (consecutive_missing % 3 == 0)
+        if should_alert:
+            alert_service.send_missing_data_alert(
+                bond_id=bond.id,
+                bond_name=bond.name,
+                missing_date=str(audit_date),
+                consecutive_missing=consecutive_missing,
+                issuer_email=bond.issuer_email,
+                issuer_phone=bond.issuer_phone,
+            )
+        else:
+            logger.info(f"  Skipping alert for {bond.id} — consecutive_missing={consecutive_missing}, not an alert day")
 
         # Log the missing data alert in DB
         audit_service.write_alert(
@@ -231,8 +245,18 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
     )
 
     # ── Step 9: Invalidate Redis caches for this bond ─────────────────────────
-    from routers.bonds import invalidate_bond_caches
-    invalidate_bond_caches(bond.id)
+    # Inlined here to avoid circular import (bonds router imports celery tasks)
+    keys_to_delete = [
+        f"bond:detail:{bond.id}",
+        f"bond:pr_today:{bond.id}",
+        "bonds:list",
+        "dashboard:summary",
+        "health:full_check",
+    ]
+    pattern_keys = redis_client.keys(f"bond:timeseries:{bond.id}:*")
+    keys_to_delete.extend(pattern_keys)
+    if keys_to_delete:
+        redis_client.delete(*keys_to_delete)
 
     # Also clear alert caches since new alerts may have been written
     redis_client.delete("alerts:unread:count", "alerts:summary")

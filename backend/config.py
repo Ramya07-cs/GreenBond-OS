@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 
@@ -49,8 +49,7 @@ class Settings(BaseSettings):
     PERFORMANCE_FACTOR: float = 0.80
     PENALTY_RATE_MULTIPLIER: float = 1.5
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
