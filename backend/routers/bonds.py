@@ -70,6 +70,7 @@ class BondOut(BaseModel):
     status: str
     tvl: int
     maturity_date: Optional[date]
+    created_at: Optional[datetime] = None
     today_pr: Optional[float] = None
     consecutive_penalty: int = 0
     consecutive_compliant: int = 0
@@ -82,14 +83,26 @@ class BondOut(BaseModel):
 
 def _enrich_bond(bond: Bond, db: Session) -> BondOut:
     """Attach latest audit stats to a bond object."""
+    # Latest log for streaks (any verdict)
     latest_log = (
         db.query(AuditLog)
         .filter(AuditLog.bond_id == bond.id)
         .order_by(AuditLog.date.desc())
         .first()
     )
+    # Latest COMPLIANT or PENALTY log for Today PR — skip IGNORED (NASA lag days)
+    latest_real_log = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.bond_id == bond.id,
+            AuditLog.verdict.in_(["COMPLIANT", "PENALTY"]),
+            AuditLog.calculated_pr.isnot(None),
+        )
+        .order_by(AuditLog.date.desc())
+        .first()
+    )
     out = BondOut.model_validate(bond)
-    out.today_pr = float(latest_log.calculated_pr) if latest_log and latest_log.calculated_pr else None
+    out.today_pr = float(latest_real_log.calculated_pr) if latest_real_log else None
     out.consecutive_penalty = latest_log.consecutive_penalty if latest_log else 0
     out.consecutive_compliant = latest_log.consecutive_compliant if latest_log else 0
     return out

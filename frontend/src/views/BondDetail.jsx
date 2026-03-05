@@ -81,7 +81,10 @@ export default function BondDetail({ bond: initialBond, onBack }) {
       {/* Performance Panel */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, padding: 14, background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r)", marginBottom: 14 }}>
         {[
-          { l: "Today's PR", v: bond.today_pr ? `${(bond.today_pr * 100).toFixed(0)}%` : "—", c: bond.today_pr ? (bond.today_pr >= .75 ? "var(--green)" : "var(--red)") : "var(--text3)" },
+          { l: "Today's PR", v: bond.today_pr
+    ? `${(bond.today_pr * 100).toFixed(0)}%`
+    : <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", letterSpacing: ".06em", fontWeight: 700, display: "inline-block" }}>⏳ NASA LAG</span>,
+  c: bond.today_pr ? (bond.today_pr >= .75 ? "var(--green)" : "var(--red)") : "var(--slate)" },
           { l: "Threshold", v: "75%", c: "var(--amber)" },
           { l: "Verdict", v: bond.status, badge: true },
           { l: "Penalty Days", v: bond.consecutive_penalty || 0, c: bond.consecutive_penalty > 0 ? "var(--red)" : "var(--text3)" },
@@ -207,10 +210,16 @@ export default function BondDetail({ bond: initialBond, onBack }) {
 
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>📋 Audit Trail + Blockchain Hashes</div>
+            {/* IGNORED rows = NASA lag days with user data pending — hidden from audit trail */}
+            {(auditData?.logs || []).filter(l => l.verdict === "IGNORED").length > 0 && (
+              <div style={{ marginBottom: 10, padding: "7px 12px", background: "rgba(84,110,122,.08)", border: "1px solid rgba(84,110,122,.2)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--slate)" }}>
+                ⏳ {(auditData?.logs || []).filter(l => l.verdict === "IGNORED").length} day(s) pending NASA data — will auto-process when satellite data becomes available (5-6 day lag).
+              </div>
+            )}
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead><tr>{["Date","PR","NASA GHI","Verdict","TX Hash"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 12px", fontSize: 9, letterSpacing: ".15em", textTransform: "uppercase", color: "var(--text3)", borderBottom: "1px solid var(--border)", fontWeight: 600 }}>{h}</th>)}</tr></thead>
               <tbody>
-                {(auditData?.logs || []).map((log, i) => (
+                {(auditData?.logs || []).filter(log => log.verdict !== "IGNORED").map((log, i) => (
                   <tr key={i}>
                     <td style={{ padding: "10px 12px", fontSize: 10, color: "var(--text3)", fontFamily: "var(--mono)", borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.date}</td>
                     <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 12, color: log.calculated_pr >= 0.75 ? "var(--green)" : "var(--red)", fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.calculated_pr ? `${(log.calculated_pr * 100).toFixed(0)}%` : "—"}</td>

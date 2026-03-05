@@ -76,7 +76,7 @@ export default function MapView({ onSelectBond }) {
                 opacity: 0, transition: "opacity .2s", zIndex: 10,
               }}>
                 <div style={{ fontWeight: 700, color }}>{b.name}</div>
-                <div style={{ color: "var(--text3)" }}>{b.status} · {b.current_rate}% · PR: {b.today_pr ? `${(b.today_pr * 100).toFixed(0)}%` : "—"}</div>
+                <div style={{ color: "var(--text3)" }}>{b.status} · {b.current_rate}% · PR: {b.today_pr ? `${(b.today_pr * 100).toFixed(0)}%` : "⏳"}</div>
               </div>
             </div>
           );
@@ -116,7 +116,9 @@ export default function MapView({ onSelectBond }) {
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)" }}>{b.lat}°N, {b.lng}°E</td>
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12, color: b.current_rate > b.base_rate ? "var(--red)" : "var(--green)", fontWeight: 700 }}>{b.current_rate}%</td>
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12, color: b.today_pr ? (b.today_pr >= .75 ? "var(--green)" : "var(--red)") : "var(--slate)" }}>
-                  {b.today_pr ? `${(b.today_pr * 100).toFixed(0)}%` : "—"}
+                  {b.today_pr
+                    ? `${(b.today_pr * 100).toFixed(0)}%`
+                    : <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", letterSpacing: ".06em", fontWeight: 700 }}>⏳ PENDING</span>}
                 </td>
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)" }}>
                   <button style={{ padding: "5px 12px", borderRadius: "var(--r2)", background: "var(--green)", border: "none", color: "#000", fontWeight: 700, fontSize: 10, cursor: "pointer" }}>→</button>

@@ -8,6 +8,9 @@ export default function DataEntry() {
   const [form, setForm] = useState({ bond_id: "", date: new Date().toISOString().split("T")[0], kwh: "", notes: "" });
   const [submitted, setSubmitted] = useState(false);
   const { data: bonds = [] } = useBonds();
+  const selectedBond = bonds.find(b => b.id === form.bond_id);
+  const minDate = selectedBond?.created_at ? selectedBond.created_at.split("T")[0] : undefined;
+  const maxDate = new Date().toISOString().split("T")[0];
 
   const mutation = useMutation({
     mutationFn: submitManualEntry,
@@ -68,7 +71,7 @@ export default function DataEntry() {
                       {bonds.map(b => <option key={b.id} value={b.id}>{b.id} — {b.name}</option>)}
                     </select>
                   )},
-                  { n: 2, l: "Reporting Date", el: <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "9px 12px", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, outline: "none", width: "100%" }} /> },
+                  { n: 2, l: "Reporting Date", el: <input type="date" value={form.date} min={minDate} max={maxDate} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "9px 12px", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, outline: "none", width: "100%" }} /> },
                   { n: 3, l: "Energy Produced (kWh)", el: <input type="number" placeholder="e.g. 24800" value={form.kwh} onChange={e => setForm(f => ({ ...f, kwh: e.target.value }))} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "9px 12px", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, outline: "none", width: "100%" }} /> },
                   { n: 4, l: "Notes (Optional)", el: <input type="text" placeholder="e.g. Grid outage 14:00–16:00" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "9px 12px", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, outline: "none", width: "100%" }} /> },
                 ].map(f => (

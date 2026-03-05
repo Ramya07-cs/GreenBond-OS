@@ -116,7 +116,9 @@ export default function Dashboard({ onSelectBond }) {
                   {b.current_rate}% {b.current_rate > b.base_rate && "↑"}
                 </td>
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12, color: b.today_pr ? (b.today_pr >= 0.75 ? "var(--green)" : "var(--red)") : "var(--slate)" }}>
-                  {b.today_pr ? `${(b.today_pr * 100).toFixed(0)}%` : "—"}
+                  {b.today_pr
+                    ? `${(b.today_pr * 100).toFixed(0)}%`
+                    : <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", letterSpacing: ".06em", fontWeight: 700 }}>⏳ PENDING</span>}
                 </td>
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12 }}>
                   {b.tvl ? `₹${(b.tvl / 1e5).toFixed(0)}L` : "—"}

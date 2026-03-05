@@ -47,20 +47,28 @@ def catchup_missed_audits() -> dict:
 
         for bond in active_bonds:
             summary["bonds_checked"] += 1
-            missed_dates = _find_missed_dates(db, bond.id, yesterday, cutoff)
+            # Never audit before the bond was registered — use registration
+            # date as the hard floor, regardless of MAX_CATCHUP_DAYS
+            bond_start = bond.created_at.date() if bond.created_at else date.today()
+            # Bond registered today — nothing to catch up, Beat will run tonight
+            if bond_start >= date.today():
+                logger.info(f"[Catchup] {bond.id}: registered today, skipping catchup.")
+                continue
+            effective_cutoff = max(cutoff, bond_start)
+            missed_dates = _find_missed_dates(db, bond.id, yesterday, effective_cutoff)
 
             if not missed_dates:
                 logger.info(f"[Catchup] {bond.id}: up to date ✓")
                 continue
 
             # Check if the oldest missed date exceeds our lookback window
-            if missed_dates[0] < cutoff:
+            if missed_dates[0] < effective_cutoff:
                 logger.warning(
                     f"[Catchup] {bond.id}: gap starts {missed_dates[0]} which is "
                     f"older than {MAX_CATCHUP_DAYS}-day limit. "
-                    f"Processing from {cutoff} onwards only."
+                    f"Processing from {effective_cutoff} onwards only."
                 )
-                missed_dates = [d for d in missed_dates if d >= cutoff]
+                missed_dates = [d for d in missed_dates if d >= effective_cutoff]
                 summary["skipped_too_old"] += 1
 
             if not missed_dates:
@@ -111,7 +119,7 @@ def _find_missed_dates(
     up_to: date,
     cutoff: date,
 ) -> list[date]:
-    
+
     # Find the last audited date for this bond
     last_audited: Optional[date] = (
         db.query(func.max(AuditLog.date))

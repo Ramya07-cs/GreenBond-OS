@@ -1,59 +1,75 @@
-# ⬡ GreenBond OS
+<div align="center">
 
-**A blockchain-verified smart green bond monitoring platform.**  
-Automated performance tracking, NASA-data-driven compliance scoring, penalty enforcement, and immutable on-chain audit trails — all in one operational system.
+#  GreenBond OS
 
----
+**Blockchain-verified smart green bond monitoring platform**
 
-## What Is This?
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![Celery](https://img.shields.io/badge/Celery-5.4-37814A?style=flat-square&logo=celery&logoColor=white)](https://docs.celeryq.dev)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io)
+[![Polygon](https://img.shields.io/badge/Polygon-Amoy_Testnet-8247E5?style=flat-square&logo=polygon&logoColor=white)](https://polygon.technology)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-GreenBond OS is a **Smart Green Bond monitoring system** that enforces energy performance agreements automatically and transparently.
+*Automated PR calculation · Penalty enforcement · Immutable audit trails · Live satellite data*
 
-A **Green Bond** is a financial instrument where the issuer borrows money at a preferential interest rate — on the condition that the funded renewable energy asset (solar farm, wind turbine, etc.) actually performs as promised.
-
-**The Problem:**  
-Traditional green bonds rely on manual audits and self-reported data. There is no enforcement mechanism. Issuers who underperform face no real consequence.
-
-**The Solution:**  
-GreenBond OS automates the entire lifecycle:
-
-1. Every day, the system fetches **NASA satellite GHI data** for each bond's GPS location
-2. It calculates a **Performance Ratio (PR)** by comparing actual energy production vs. NASA-predicted output
-3. If PR drops below **75%** for **3 consecutive days**, the interest rate is automatically hiked (e.g., 5% → 7.5%)
-4. This rate change is written to the **Polygon blockchain** — creating an immutable, tamper-proof audit trail
-5. **SMS + Email alerts** are dispatched to all stakeholders instantly
-6. Rate recovers only after **7 consecutive compliant days** — preventing gaming
-
-Everything is logged to PostgreSQL and every critical event has a blockchain transaction hash that anyone can verify on Polygonscan.
+</div>
 
 ---
 
-## System Architecture
+## What This System Does
+
+GreenBond OS automates the entire compliance lifecycle of a green bond. Every day at **06:00 IST**, the system:
+
+1. Fetches satellite irradiance data from the **NASA POWER API** for each bond's GPS coordinates
+2. Compares it against inverter production logs submitted via the UI or IoT push
+3. Calculates a **Performance Ratio (PR)** using industry-standard formulas
+4. Detects underperformance streaks and — if the bond crosses the 3-day threshold — **executes a rate change on the Polygon blockchain**
+5. Dispatches **SMS and email alerts** to the issuer and investors
+6. Exposes everything through a live React dashboard with Glass Box audit transparency
+
+What the frontend shows as a percentage and a coloured badge is the output of a multi-stage pipeline that crosses four external systems, two databases, a message queue, and a smart contract.
+
+---
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        FRONTEND                             │
-│   React (Vite) · IBM Plex Mono · Recharts · Bloomberg UI    │
-│   Dashboard · Bond Detail · Map · Alerts · Data Entry       │
-└────────────────────────────┬────────────────────────────────┘
-                             │ REST API
-┌────────────────────────────▼────────────────────────────────┐
-│                      FASTAPI BACKEND                        │
-│   /bonds  /audit  /alerts  /data  /health  /blockchain      │
-└──────┬─────────────┬──────────────┬──────────────┬──────────┘
-       │             │              │              │
-┌──────▼──────┐ ┌────▼─────┐ ┌─────▼──────┐ ┌───▼────────┐
-│ PostgreSQL  │ │  Redis   │ │   Celery   │ │  Polygon   │
-│  Audit Log  │ │  Cache   │ │  Workers   │ │ Blockchain │
-│  Bond Data  │ │  Queue   │ │  + Beat    │ │  (Web3.py) │
-└─────────────┘ └──────────┘ └────────────┘ └────────────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-             ┌──────▼─────┐ ┌─────▼──────┐ ┌────▼──────┐
-             │ NASA POWER │ │  Twilio    │ │  SendGrid │
-             │    API     │ │   (SMS)    │ │  (Email)  │
-             └────────────┘ └────────────┘ └───────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     FRONTEND (React + Vite)                     │
+│   Dashboard · Bond Detail · Glass Box · Alert Center · Map      │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ HTTP /api/*
+┌────────────────────────────▼────────────────────────────────────┐
+│                    FASTAPI (uvicorn) :8000                      │
+│  bonds · audit · production · alerts · blockchain · health      │
+│  CORS middleware · structured logging · Sentry error capture    │
+│  Lifespan hook: table creation + startup catchup on every boot  │
+└──────┬──────────────────────────────────────┬───────────────────┘
+       │ SQLAlchemy ORM                       │ redis-py
+┌──────▼──────────┐                  ┌────────▼────────┐
+│   PostgreSQL    │                  │      Redis      │
+│  bonds          │                  │  Celery broker  │
+│  audit_logs     │                  │  API cache      │
+│  production_    │                  │  NASA GHI cache │
+│  entries        │                  └────────┬────────┘
+│  alerts         │                           │ task queue
+└──────┬──────────┘              ┌────────────▼────────────────┐
+       │                         │        CELERY WORKER        │
+       │                         │  daily_audit pipeline       │
+       │                         │  bond maturity checker      │
+       │                         │  startup catchup recovery   │
+       │                         └────────────┬────────────────┘
+       │                                      │
+       │              ┌───────────────────────┼──────────────────┐
+       │              │                       │                  │
+       │   ┌──────────▼──────┐  ┌─────────────▼──────┐  ┌────────▼──────┐
+       │   │  NASA POWER API │  │ Polygon Smart      │  │ SendGrid /    │
+       │   │  (free, no key) │  │ Contract           │  │ Twilio SMS    │
+       └───┘  GHI kWh/m² ←   │  │ recordRateChange() │  │ alert alerts  │
+           └───────────────┘    └────────────────────┘  └───────────────┘
 ```
 
 ---
@@ -62,19 +78,270 @@ Everything is logged to PostgreSQL and every critical event has a blockchain tra
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| **Frontend** | React 18 + Vite | UI framework |
-| **Charts** | Recharts | PR, energy, interest rate graphs |
-| **Styling** | Plain CSS + IBM Plex Mono + Barlow Condensed | Bloomberg terminal aesthetic |
-| **Backend** | FastAPI (Python 3.11+) | REST API + business logic |
-| **Database** | PostgreSQL 15 | Audit logs, bond data, production records |
-| **Cache / Queue** | Redis 7 | Celery broker + result backend |
-| **Task Queue** | Celery + Celery Beat | Scheduled daily audits |
-| **Blockchain** | Web3.py + Polygon Mainnet | Immutable rate change records |
-| **Smart Contract** | Solidity (ERC-compliant) | On-chain rate enforcement |
-| **Satellite Data** | NASA POWER API | Daily GHI per GPS coordinate |
-| **SMS** | Twilio | Penalty + recovery alerts |
-| **Email** | SendGrid / SMTP | Stakeholder notifications |
-| **Deployment** | Docker + Docker Compose | Container orchestration |
+| API server | FastAPI 0.111 + Uvicorn | REST endpoints, Swagger UI, async I/O |
+| ORM | SQLAlchemy 2.0 | Database models, session management |
+| Database | PostgreSQL 15 | Bonds, audits, production entries, alerts |
+| Task queue | Celery 5.4 | Async background audit execution with retries |
+| Scheduler | Celery Beat | Cron-based 06:00 IST daily trigger |
+| Cache + broker | Redis 7 | NASA GHI cache, API response cache, Celery broker |
+| Blockchain | Web3.py 7 | Rate change writes to Polygon smart contract |
+| Satellite data | NASA POWER API | Free global GHI irradiance — no API key required |
+| Email | SendGrid | Penalty and recovery alert emails |
+| SMS | Twilio | Critical escalation alerts |
+| Error monitoring | Sentry SDK | Unhandled exceptions, slow transaction traces |
+| Config | Pydantic Settings | Type-safe `.env` management |
+| Frontend | React 18 + Vite + Recharts | Dashboard, charts, bond detail views |
+
+---
+
+## Quick Start
+
+**Prerequisites:** Python 3.13, Node.js 18+, PostgreSQL 15, Redis 7
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/yourname/greenbond-os.git
+cd greenbond-os
+
+# 2. Backend setup
+cd backend
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate.bat
+pip install -r requirements.txt
+cp .env.example .env              # Fill in your credentials
+
+# 3. Create the database
+psql -U postgres -c "CREATE USER greenbond WITH PASSWORD 'password';"
+psql -U postgres -c "CREATE DATABASE greenbonds OWNER greenbond;"
+
+# 4. Frontend setup
+cd ../frontend && npm install
+```
+
+Open **4 terminals** and run each process:
+
+```bash
+# Terminal 1 — FastAPI server
+cd backend && source venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2 — Celery worker (processes audit tasks)
+cd backend && source venv/bin/activate
+celery -A tasks.celery_app worker --loglevel=info --pool=solo -Q audits,default,celery
+
+# Terminal 3 — Celery Beat (fires 06:00 IST daily)
+cd backend && source venv/bin/activate
+celery -A tasks.celery_app beat --loglevel=info
+
+# Terminal 4 — React frontend
+cd frontend && npm run dev
+```
+
+| URL | What it is |
+|---|---|
+| http://localhost:5173 | Live dashboard |
+| http://localhost:8000/docs | Swagger API docs |
+| http://localhost:8000/api/health/ | System health check |
+
+---
+
+## The Daily Audit Pipeline
+
+Each active bond runs through this 8-step pipeline every morning at 06:00 IST via Celery Beat.
+
+### Step 1 — NASA GHI Fetch
+
+```python
+nasa_service.get_ghi(lat, lng, target_date, bond_id)
+```
+
+Queries the NASA POWER API (`ALLSKY_SFC_SW_DWN` parameter, `RE` community) for the bond's GPS coordinates. Returns Global Horizontal Irradiance in kWh/m².
+
+**Redis caching:** Each result is stored under `nasa:ghi:{bond_id}:{YYYYMMDD}` with a 24h TTL. Historical GHI never changes, so cache hits are permanent for past dates.
+
+**NASA data lag:** NASA's satellite compositing introduces a 5–6 day lag. When user production data exists but GHI is not yet available, the audit skips silently — no log is written, and the date is retried automatically by the catchup system once satellite data arrives.
+
+### Step 2 — Production Data Retrieval
+
+```sql
+SELECT kwh FROM production_entries
+WHERE bond_id = :bond_id AND date = :audit_date
+```
+
+Reads the inverter kWh figure submitted manually via the Data Entry UI or automatically via `POST /api/production/iot` by the inverter's push integration.
+
+If no entry exists for that date: a missing data alert is dispatched (email on day 1, SMS escalation every 3rd consecutive missing day). Missing days are **neutral** — they do not advance or reset the penalty streak.
+
+### Step 3 — Performance Ratio Calculation
+
+```
+expected_kwh = NASA_GHI × capacity_kW × performance_factor
+actual_ghi   = actual_kwh ÷ (capacity_kW × performance_factor)
+PR           = actual_ghi ÷ NASA_GHI
+```
+
+The **performance factor of 0.80** accounts for real-world system losses: inverter efficiency, wiring resistance, soiling, temperature derating, and mismatch losses. Industry standard range is 0.75–0.85.
+
+**Manipulation detection:** A PR above 1.0 is physically impossible — a solar panel cannot produce more energy than the irradiance the sun delivered. Any kWh submission yielding PR > 1.0 is automatically flagged as `PENALTY` with reason `"submitted kWh physically impossible"`. Treating it as `IGNORED` would silently allow fraudulent submissions to avoid penalty.
+
+| Condition | Verdict |
+|---|---|
+| `PR ≥ 0.75` | `COMPLIANT` |
+| `PR < 0.75` | `PENALTY` |
+| `PR > 1.0` | `PENALTY` — data manipulation flag |
+| No production data or no NASA GHI | `IGNORED` |
+
+### Step 4 — Penalty and Recovery Evaluation
+
+```
+Penalty trigger:  3 consecutive PENALTY days   → rate = base_rate × 1.5
+Recovery trigger: 7 consecutive COMPLIANT days  → rate = base_rate
+IGNORED days:     neither streak changes
+```
+
+Both thresholds and the multiplier are fully configurable via `.env` — no code changes required.
+
+### Step 5 — Blockchain Write
+
+If a rate change was triggered, `blockchain_service.write_rate_change()` calls `recordRateChange()` on the deployed Polygon smart contract. The payload includes bond ID, previous rate, new rate, trigger type, and a full PR snapshot. The **transaction hash and block number** are stored in `audit_logs`, creating a permanent cryptographic link between the database record and the on-chain event.
+
+**Lazy initialisation:** Web3 connects only on the first write call, not at import time. A misconfigured private key in `.env` disables blockchain writes only — all API routes, audit pipeline, and frontend continue to function normally.
+
+### Step 6 — Alert Dispatch
+
+Rate change events trigger:
+- **Email** (SendGrid) to the bond issuer and registered investors
+- **SMS** (Twilio) to the issuer's phone number
+- **Alert record** inserted into the `alerts` table (visible in the frontend Alert Center)
+
+Missing data alerts are rate-limited: sent on day 1 of a gap, then every 3rd consecutive day — prevents email quota exhaustion during multi-day outages or long catchup runs.
+
+### Step 7 — Audit Log Upsert
+
+Each audit record is an **upsert** against `(bond_id, date)`. Re-running the audit for the same bond+date overwrites the existing row rather than appending a duplicate. This makes manual re-runs, catchup, and the Beat scheduler all safe to call simultaneously — one record per bond per day, always.
+
+### Step 8 — Cache Invalidation
+
+Purges Redis keys for the affected bond after every write:
+
+```
+bond:detail:{bond_id}
+bond:pr_today:{bond_id}
+bond:timeseries:{bond_id}:*
+bonds:list
+dashboard:summary
+health:full_check
+```
+
+The frontend receives fresh data on the next API call without waiting for TTL expiry.
+
+---
+
+## Catchup System
+
+On every server startup, `catchup_missed_audits()` runs automatically via the FastAPI lifespan hook. It identifies every calendar day with no audit record for each active bond, and queues Celery tasks for each — staggered 10 seconds apart to avoid rate-limiting the NASA API.
+
+| Behaviour | Detail |
+|---|---|
+| **Registration floor** | Never audits before a bond's `created_at` timestamp |
+| **Idempotency** | Checks existing records before queuing — safe to restart many times |
+| **Safety cap** | 30-day maximum lookback prevents runaway task queues |
+| **NASA lag awareness** | Dates within the 5–6 day lag window will return IGNORED and be retried on the next startup |
+
+---
+
+## Triggering a Manual Audit
+
+The pipeline fires automatically at 06:00 IST. To audit a specific date manually:
+
+```bash
+curl -X POST "http://localhost:8000/api/audit/run?target_date=2026-02-27&bond_id=GB-2025-001"
+```
+
+> **Note:** Always audit a date at least 6 days in the past. NASA data for recent dates is not yet available — auditing them will produce IGNORED verdicts and write no log record.
+
+---
+
+## API Reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/bonds/` | All bonds with live PR and streak stats |
+| `POST` | `/api/bonds/` | Register a new bond |
+| `GET` | `/api/bonds/{id}` | Single bond detail |
+| `GET` | `/api/bonds/{id}/timeseries` | PR + energy + rate chart data (60 days) |
+| `GET` | `/api/bonds/dashboard/summary` | Aggregated KPIs for the dashboard |
+| `POST` | `/api/production/manual` | Submit daily kWh manually |
+| `POST` | `/api/production/iot` | IoT inverter push endpoint |
+| `POST` | `/api/audit/run` | Trigger a manual audit for a date |
+| `GET` | `/api/audit/` | Paginated audit log with filters |
+| `GET` | `/api/alerts/` | Alert history by bond, type, severity |
+| `GET` | `/api/alerts/summary` | Unread count + severity breakdown |
+| `GET` | `/api/blockchain/status` | Live Polygon node + contract status |
+| `GET` | `/api/health/` | Full system health (all services) |
+
+Full interactive docs: `http://localhost:8000/docs`
+
+---
+
+## Data Models
+
+### `bonds`
+| Column | Type | Description |
+|---|---|---|
+| `id` | VARCHAR | Bond identifier e.g. `GB-2025-001` |
+| `capacity_kw` | NUMERIC | System capacity in kilowatts |
+| `lat` / `lng` | NUMERIC | GPS coordinates for NASA API |
+| `base_rate` | NUMERIC | Contractual base interest rate |
+| `current_rate` | NUMERIC | Live rate — may differ if penalised |
+| `status` | VARCHAR | `ACTIVE` / `PENALTY` / `MATURED` |
+| `created_at` | TIMESTAMPTZ | Registration timestamp — catchup floor |
+
+### `audit_logs`
+| Column | Type | Description |
+|---|---|---|
+| `date` | DATE | Audit date — unique per bond |
+| `nasa_ghi` | NUMERIC | Satellite irradiance kWh/m² |
+| `actual_kwh` | NUMERIC | Inverter production |
+| `expected_kwh` | NUMERIC | NASA-derived expected output |
+| `calculated_pr` | NUMERIC | Performance Ratio 0–1.0, NULL if IGNORED |
+| `verdict` | VARCHAR | `COMPLIANT` / `PENALTY` / `IGNORED` |
+| `consecutive_penalty` | INT | Streak count at audit time |
+| `rate_before` / `rate_after` | NUMERIC | Rate snapshot at audit time |
+| `blockchain_tx_hash` | VARCHAR | On-chain proof — NULL if no rate change |
+| `block_number` | INT | Polygon block number |
+
+---
+
+## What Frontend Numbers Actually Represent
+
+| UI Element | Backend Source |
+|---|---|
+| Today's PR % | `audit_logs.calculated_pr` — latest non-IGNORED record for the bond |
+| Penalty / Active badge | `bonds.status` — set by penalty engine after 3-day streak |
+| Current Rate % | `bonds.current_rate` — updated atomically on blockchain write |
+| 30-day PR chart | `timeseries` endpoint — `audit_logs` ordered by date |
+| Streak bar | `audit_logs.consecutive_penalty / consecutive_compliant` |
+| Financial Impact calculator | `tvl × (current_rate − base_rate) ÷ 100 ÷ 365` |
+| Alert Center entries | `alerts` table — one row per email / SMS / blockchain event |
+| TX Hash in Glass Box | `audit_logs.blockchain_tx_hash` — Polygon transaction ID |
+| Production vs NASA chart | `actual_kwh` vs `expected_kwh` from `audit_logs` per day |
+| Compliance Rate % | `COUNT(ACTIVE) ÷ COUNT(all non-MATURED bonds)` |
+| System Health service dots | `/api/health/` — live ping against every external service |
+
+---
+
+## Configuration
+
+Copy `backend/.env.example` to `backend/.env` and fill in your credentials. All PR thresholds are configurable without touching code:
+
+```bash
+PR_THRESHOLD=0.75              # Minimum acceptable Performance Ratio
+CONSECUTIVE_PENALTY_DAYS=3    # Under-threshold days before rate hike
+CONSECUTIVE_RECOVERY_DAYS=7   # Above-threshold days to restore base rate
+PERFORMANCE_FACTOR=0.80        # System loss factor (industry range 0.75–0.85)
+PENALTY_RATE_MULTIPLIER=1.5   # Rate hike multiplier (1.5 = +50% above base)
+```
 
 ---
 
@@ -82,335 +349,47 @@ Everything is logged to PostgreSQL and every critical event has a blockchain tra
 
 ```
 greenbond-os/
-│
 ├── backend/
-│   ├── main.py                  # FastAPI entrypoint
-│   ├── config.py                # Settings, env vars
-│   ├── database.py              # SQLAlchemy setup
-│   │
-│   ├── models/
-│   │   ├── bond.py              # Bond ORM model
-│   │   ├── audit_log.py         # Daily PR audit record
-│   │   ├── alert.py             # Alert log model
-│   │   └── production.py        # Daily kWh entry model
-│   │
-│   ├── routers/
-│   │   ├── bonds.py             # CRUD for bonds
-│   │   ├── audit.py             # Audit log endpoints
-│   │   ├── alerts.py            # Alert history
-│   │   ├── production.py        # Manual + IoT data entry
-│   │   ├── blockchain.py        # TX lookup + verification
-│   │   └── health.py            # System health check
-│   │
+│   ├── main.py                   # FastAPI app, lifespan hook, catchup trigger
+│   ├── config.py                 # Pydantic Settings — all config from .env
+│   ├── database.py               # SQLAlchemy engine + session factory
+│   ├── redis_client.py           # Shared Redis connection
+│   ├── models/                   # Bond, AuditLog, ProductionEntry, Alert
+│   ├── routers/                  # bonds, audit, production, alerts, blockchain, health
 │   ├── services/
-│   │   ├── nasa.py              # NASA POWER API client
-│   │   ├── pr_engine.py         # PR calculation logic
-│   │   ├── penalty_engine.py    # Streak + rate hike logic
-│   │   ├── blockchain.py        # Web3.py Polygon client
-│   │   ├── alerts.py            # Twilio + SendGrid
-│   │   └── audit.py             # Audit record writer
-│   │
+│   │   ├── pr_engine.py          # PR calculator + manipulation detection
+│   │   ├── penalty_engine.py     # Streak-based rate change evaluator
+│   │   ├── nasa.py               # NASA POWER API client + Redis cache
+│   │   ├── blockchain.py         # Web3 Polygon writer, lazy initialisation
+│   │   ├── alerts.py             # SendGrid + Twilio dispatcher + rate limiter
+│   │   └── audit.py              # Audit log upsert + streak reader
 │   ├── tasks/
-│   │   ├── celery_app.py        # Celery app instance
-│   │   ├── daily_audit.py       # Main scheduled task
-│   │   └── beat_schedule.py     # Cron schedule (06:00 daily)
-│   │
-│   └── contracts/
-│       ├── GreenBond.sol        # Solidity smart contract
-│       └── abi.json             # Contract ABI for Web3.py
-│
+│   │   ├── celery_app.py         # Celery app factory + Beat schedule
+│   │   ├── daily_audit.py        # 8-step audit pipeline
+│   │   ├── catchup.py            # Startup missed-audit recovery
+│   │   └── maturity.py           # Bond maturity date checker
+│   ├── contracts/abi.json        # Polygon smart contract ABI
+│   ├── .env.example              # Safe credential template
+│   └── requirements.txt
 ├── frontend/
-│   ├── src/
-│   │   ├── App.jsx              # Shell + router
-│   │   ├── views/
-│   │   │   ├── Dashboard.jsx    # Global overview
-│   │   │   ├── BondDetail.jsx   # Per-bond deep-dive
-│   │   │   ├── MapView.jsx      # Portfolio map
-│   │   │   ├── Alerts.jsx       # Alert center
-│   │   │   ├── DataEntry.jsx    # Manual + IoT entry
-│   │   │   └── SystemHealth.jsx # Admin health panel
-│   │   ├── components/
-│   │   │   ├── Sidebar.jsx
-│   │   │   ├── Topbar.jsx
-│   │   │   ├── StatusBadge.jsx
-│   │   │   ├── StreakTracker.jsx
-│   │   │   ├── GlassBox.jsx     # Transparency accordion
-│   │   │   └── BlockchainModal.jsx
-│   │   └── hooks/
-│   │       ├── useBonds.js
-│   │       └── useTimeseries.js
-│   ├── index.html
-│   └── vite.config.js
-│
-├── docker-compose.yml
-├── Dockerfile.backend
-├── Dockerfile.frontend
-├── .env.example
+│   └── src/
+│       ├── views/                # Dashboard, BondDetail, DataEntry, Alerts, etc.
+│       ├── components/           # StatusBadge, GlassBox, StreakTracker, Topbar
+│       ├── hooks/                # useBonds, useTimeseries
+│       └── api.js                # Axios API client
+├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
 ---
 
-## Core Concepts
-
-### Performance Ratio (PR)
-
-The central metric of the entire system.
-
-```
-PR = Actual GHI (measured) ÷ NASA GHI (satellite baseline)
-```
-
-- **PR ≥ 0.75** → Compliant. No action.
-- **PR < 0.75** → Below threshold. Streak counter increments.
-- **PR < 0.75 for 3 consecutive days** → Penalty triggered. Rate hiked.
-- **PR ≥ 0.75 for 7 consecutive days** → Recovery. Rate restored to base.
-
-### Verdict States
-
-| Verdict | Condition | Action |
-|---|---|---|
-| `COMPLIANT` | PR ≥ 0.75 | None |
-| `PENALTY` | PR < 0.75 × 3 days | Rate hike + blockchain TX |
-| `RECOVERY` | PR ≥ 0.75 × 7 days | Rate reset + blockchain TX |
-| `IGNORED` | Missing data / IoT offline | Day excluded from streak |
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- PostgreSQL 15
-- Redis 7
-- Docker & Docker Compose (recommended)
-- A funded Polygon wallet (for blockchain writes)
-
-### Quick Start with Docker
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/yourorg/greenbond-os.git
-cd greenbond-os
-
-# 2. Copy and configure environment variables
-cp .env.example .env
-# Edit .env with your API keys and wallet details
-
-# 3. Start all services
-docker-compose up -d
-
-# 4. Run database migrations
-docker-compose exec backend alembic upgrade head
-
-# 5. Seed initial bond data (optional)
-docker-compose exec backend python scripts/seed.py
-
-# 6. Open the frontend
-open http://localhost:5173
-```
-
-### Manual Setup (Development)
-
-```bash
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn main:app --reload --port 8000
-
-# Celery Worker (new terminal)
-celery -A tasks.celery_app worker --loglevel=info
-
-# Celery Beat Scheduler (new terminal)
-celery -A tasks.celery_app beat --loglevel=info
-
-# Redis (new terminal, or use Docker)
-redis-server
-
-# Frontend (new terminal)
-cd frontend
-npm install
-npm run dev
-```
-
----
-
-## Environment Variables
-
-Create a `.env` file in the project root. See `.env.example` for all options.
-
----
-## Frontend: React
-
-Built with React 18 + Vite. Bloomberg Terminal aesthetic using IBM Plex Mono and Barlow Condensed typefaces.
-
-### Views
-
-| View | Route | Description |
-|---|---|---|
-| Dashboard | `/` | Global KPIs, portfolio table, health map |
-| Bond Detail | `/bonds/:id` | Full bond deep-dive with 5 tabs |
-| Map View | `/map` | Portfolio plotted on India map |
-| Alert Center | `/alerts` | Full notification history |
-| Data Entry | `/entry` | Manual form + IoT sync status |
-| System Health | `/health` | Service uptime, logs, Celery status |
-
-### Bond Detail Tabs
-
-- **Overview** — Info grid, performance panel, streak tracker, satellite context, financial impact, interest rate timeline
-- **Analytics** — 60-day PR chart with penalty markers, production vs. NASA dual-area chart
-- **Glass Box** — Expandable transparency accordion showing every step of PR calculation
-- **Blockchain** — TX details (hash, gas, block), all-transactions table, raw JSON payload modal
-- **Live Monitor** — Timestamped step-by-step audit event timeline
-
-### Data Flow
-
-```
-FastAPI → React Query / SWR → State → Recharts / UI
-```
-
-### Running
-
-```bash
-cd frontend
-npm install
-npm run dev          # Development: http://localhost:5173
-npm run build        # Production build → dist/
-npm run preview      # Preview production build
-```
-
----
-
-## Blockchain Integration
-
-### Smart Contract (Solidity)
-
-Deployed on **Polygon Mainnet** for low gas costs and fast finality.
-
-### Deploying the Contract
-
-```bash
-cd backend/contracts
-npm install -g hardhat
-npx hardhat compile
-npx hardhat run scripts/deploy.js --network polygon
-# Copy the deployed address to CONTRACT_ADDRESS in .env
-```
-
----
-
-## NASA POWER API
-
-All performance calculations are grounded in **NASA satellite GHI data**, making them objective and unmanipulable.
-
----
-
-## Celery & Scheduling
-
-The audit pipeline runs automatically every morning via **Celery Beat**.
-
-### Audit Pipeline (Step by Step)
-
-```
-06:00:00  Celery Beat fires the daily_audit task
-06:00:12  NASA POWER API called for all active bond coordinates
-06:00:14  GHI values received and cached in Redis
-06:00:15  Production data fetched from PostgreSQL
-06:00:15  PR calculated for each bond
-06:00:15  Penalty/recovery engine evaluates streaks
-06:01:xx  Blockchain TX submitted (if rate change triggered)
-06:04:xx  TX confirmed on Polygon Mainnet
-06:05:00  Alert pipeline triggered (Email + SMS)
-06:05:09  Notifications delivered
-06:05:11  Audit records written to PostgreSQL with TX hash
-```
-
-### Monitoring Celery
-
-```bash
-# Check worker status
-celery -A tasks.celery_app inspect active
-
-# Monitor in real time
-celery -A tasks.celery_app events
-
-# Flower web dashboard
-pip install flower
-celery -A tasks.celery_app flower --port=5555
-# Open http://localhost:5555
-```
-
----
-
-## Alert System
-
-Alerts are triggered for **every rate change** — both penalty hikes and recovery resets.
-
-### Alert Types
-
-| Type | Trigger | Channel |
-|---|---|---|
-| Penalty Alert | 3-day streak below PR threshold | SMS + Email |
-| Recovery Alert | Rate reset to base after 7 compliant days | Email |
-| Daily Warning | PR below threshold (streak ongoing) | System log |
-| IoT Offline | Device stale > 24h | Email |
-
----
-
-## Data Entry Modes
-
-### Option A: IoT Auto-Sync
-
-Inverters push data directly via REST API:
-Supported inverter brands via MODBUS/SunSpec protocol adapters: Sungrow, Huawei, SMA, Fronius, ABB.
-
-### Option B: Manual Entry
-
-Via the frontend Data Entry form
-
-### Missing Days
-
-Days with no production data are marked as `IGNORED` and excluded from the penalty streak calculation. The frontend's calendar view highlights missing days with a red dot indicator.
----
-
-## Deployment
-
-### Docker Compose (Production)
-
-```bash
-docker-compose up -d --build
-docker-compose exec backend alembic upgrade head
-```
-
-### Production Checklist
-
-- [ ] Set `DEBUG=false` in `.env`
-- [ ] Use a secrets manager for `WALLET_PRIVATE_KEY` (never commit to git)
-- [ ] Configure Nginx reverse proxy with SSL (Let's Encrypt)
-- [ ] Set up PostgreSQL backups (daily)
-- [ ] Enable Polygon Mainnet (not Mumbai testnet)
-- [ ] Verify Twilio and SendGrid accounts are out of trial mode
-- [ ] Test the full audit pipeline manually with `/api/audit/run`
-- [ ] Monitor Celery worker health with Flower or your APM tool
-
----
-
 ## License
 
-MIT License. See `LICENSE` for details.
+[MIT](LICENSE)
 
 ---
 
-## Contact
-
-Built for the green finance ecosystem.  
-For enterprise inquiries, custom deployments, or partnership opportunities — open an issue
-
----
-
-> *"Not a black box. Every number, every rule, every consequence — visible, verifiable, permanent."*
+<div align="center">
+<i>GreenBond OS — turning satellite data and blockchain proof into bond compliance.</i>
+</div>
