@@ -110,7 +110,21 @@ def get_missing_days(
     from datetime import date as d
 
     _, days_in_month = calendar.monthrange(year, month)
-    all_days = {d(year, month, day) for day in range(1, days_in_month + 1) if d(year, month, day) <= d.today()}
+
+    # Fetch bond creation date first — days before registration are not applicable
+    bond = db.query(Bond).filter(Bond.id == bond_id).first()
+    bond_created = bond.created_at.date() if bond and bond.created_at else None
+
+    # Applicable days = days up to today AND on/after bond registration
+    def is_applicable(day):
+        dt = d(year, month, day)
+        if dt > d.today():
+            return False
+        if bond_created and dt < bond_created:
+            return False
+        return True
+
+    all_days = {d(year, month, day) for day in range(1, days_in_month + 1) if is_applicable(day)}
 
     entries = (
         db.query(ProductionEntry.date)
@@ -129,6 +143,8 @@ def get_missing_days(
         "year": year,
         "month": month,
         "missing_days": [str(d) for d in missing],
-        "submitted_days": len(submitted),
+        "submitted_dates": [str(d) for d in sorted(submitted)],
+        "submitted_days": len(submitted & all_days),  # only count applicable days
         "total_days": len(all_days),
+        "bond_created": str(bond_created) if bond_created else None,
     }

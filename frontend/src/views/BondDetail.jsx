@@ -27,20 +27,32 @@ function CT({ active, payload, label }) {
   );
 }
 
-const TABS = [["overview","Overview"],["analytics","Analytics"],["glass","Glass Box"],["blockchain","Blockchain"],["monitor","Live Monitor"]];
+const TABS = [["overview","Overview"],["analytics","Analytics"],["glass","Glass Box"],["blockchain","Blockchain"],["auditlog","Audit Log"]];
 
 export default function BondDetail({ bond: initialBond, onBack }) {
   const [tab, setTab] = useState("overview");
   const [txModal, setTxModal] = useState(false);
   const { data: bond = initialBond } = useBond(initialBond.id);
-  const { data: ts } = useQuery({ queryKey: ["timeseries", bond.id, 60], queryFn: () => fetchTimeseries(bond.id, 60) });
+
+  // Compute days since bond was created — charts only show from registration date
+  const bondCreatedAt = bond.created_at ? new Date(bond.created_at) : new Date();
+  const daysSinceCreation = Math.max(7, Math.ceil((Date.now() - bondCreatedAt.getTime()) / 86400000) + 1);
+  const chartDays = Math.min(daysSinceCreation, 365);
+
+  const { data: ts } = useQuery({ queryKey: ["timeseries", bond.id, chartDays], queryFn: () => fetchTimeseries(bond.id, chartDays) });
   const { data: auditData } = useQuery({ queryKey: ["audit", bond.id], queryFn: () => fetchAuditLogs({ bond_id: bond.id, limit: 20 }) });
   const { data: chainStatus } = useQuery({ queryKey: ["blockchain-status"], queryFn: fetchBlockchainStatus, refetchInterval: 60_000, retry: false });
   const latestAudit = auditData?.logs?.[0];
+  // Most recent fully-computed audit — skips IGNORED/PENDING entries
+  const latestCompletedAudit = auditData?.logs?.find(l => l.verdict === "COMPLIANT" || l.verdict === "PENALTY");
   const isP = bond.status === "PENALTY";
-  const perfSeries = ts?.perf_series || [];
-  const energySeries = ts?.energy_series || [];
-  const interestSeries = ts?.interest_series || [];
+
+  // Clip all chart series to dates on/after bond registration — no phantom history
+  const createdDateStr = bond.created_at ? bond.created_at.split("T")[0] : null;
+  const clipSeries = (arr) => createdDateStr ? (arr || []).filter(p => p.day >= createdDateStr) : (arr || []);
+  const perfSeries = clipSeries(ts?.perf_series);
+  const energySeries = clipSeries(ts?.energy_series);
+  const interestSeries = clipSeries(ts?.interest_series);
 
   const extraPerDay = bond.tvl ? (bond.tvl * (bond.current_rate - bond.base_rate)) / 100 / 365 : 0;
 
@@ -80,21 +92,53 @@ export default function BondDetail({ bond: initialBond, onBack }) {
 
       {/* Performance Panel */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, padding: 14, background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r)", marginBottom: 14 }}>
-        {[
-          { l: "Today's PR", v: bond.today_pr
-    ? `${(bond.today_pr * 100).toFixed(0)}%`
-    : <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", letterSpacing: ".06em", fontWeight: 700, display: "inline-block" }}>⏳ NASA LAG</span>,
-  c: bond.today_pr ? (bond.today_pr >= .75 ? "var(--green)" : "var(--red)") : "var(--slate)" },
-          { l: "Threshold", v: "75%", c: "var(--amber)" },
-          { l: "Verdict", v: bond.status, badge: true },
-          { l: "Penalty Days", v: bond.consecutive_penalty || 0, c: bond.consecutive_penalty > 0 ? "var(--red)" : "var(--text3)" },
-          { l: "Compliant Days", v: bond.consecutive_compliant || 0, c: bond.consecutive_compliant > 0 ? "var(--green)" : "var(--text3)" },
-        ].map((p, i) => (
-          <div key={i} style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 6 }}>{p.l}</div>
-            {p.badge ? <StatusBadge status={bond.status} /> : <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: p.c || "var(--text)" }}>{p.v}</div>}
+
+        {/* Latest PR — last successfully computed audit date */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 4 }}>Latest PR</div>
+          {latestCompletedAudit ? (
+            <>
+              <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: latestCompletedAudit.calculated_pr >= 0.75 ? "var(--green)" : "var(--red)" }}>
+                {(latestCompletedAudit.calculated_pr * 100).toFixed(0)}%
+              </div>
+              <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 3, fontFamily: "var(--mono)" }}>{latestCompletedAudit.date}</div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", fontWeight: 700, display: "inline-block", marginTop: 4 }}>⏳ PENDING</div>
+              <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 3 }}>awaiting NASA data</div>
+            </>
+          )}
+        </div>
+
+        {/* Threshold */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 6 }}>Threshold</div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: "var(--amber)" }}>75%</div>
+        </div>
+
+        {/* Verdict */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 6 }}>Verdict</div>
+          <StatusBadge status={bond.status} />
+        </div>
+
+        {/* Penalty Days */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 6 }}>Penalty Days</div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: bond.consecutive_penalty > 0 ? "var(--red)" : "var(--text3)" }}>
+            {bond.consecutive_penalty || 0}
           </div>
-        ))}
+        </div>
+
+        {/* Compliant Days */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 6 }}>Compliant Days</div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: bond.consecutive_compliant > 0 ? "var(--green)" : "var(--text3)" }}>
+            {bond.consecutive_compliant || 0}
+          </div>
+        </div>
+
       </div>
 
       {/* Tabs */}
@@ -160,7 +204,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
       {tab === "analytics" && (
         <div>
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>📈 PR Over Time (60 days)</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>📈 PR Over Time — Since {bondCreatedAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</div>
             <div style={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={perfSeries}>
@@ -206,16 +250,10 @@ export default function BondDetail({ bond: initialBond, onBack }) {
           <div style={{ padding: "10px 14px", background: "rgba(0,230,118,.04)", border: "1px solid rgba(0,230,118,.15)", borderRadius: "var(--r2)", marginBottom: 14, fontSize: 11, color: "var(--text2)", lineHeight: 1.7 }}>
             🔬 <strong style={{ color: "var(--green)" }}>Glass Box:</strong> Every step of the PR calculation is shown below. Auditors can independently verify the raw data, formula, and final verdict.
           </div>
-          <div style={{ marginBottom: 14 }}><GlassBox bond={bond} auditLog={latestAudit} /></div>
+          <div style={{ marginBottom: 14 }}><GlassBox bond={bond} auditLog={latestCompletedAudit} /></div>
 
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>📋 Audit Trail + Blockchain Hashes</div>
-            {/* IGNORED rows = NASA lag days with user data pending — hidden from audit trail */}
-            {(auditData?.logs || []).filter(l => l.verdict === "IGNORED").length > 0 && (
-              <div style={{ marginBottom: 10, padding: "7px 12px", background: "rgba(84,110,122,.08)", border: "1px solid rgba(84,110,122,.2)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--slate)" }}>
-                ⏳ {(auditData?.logs || []).filter(l => l.verdict === "IGNORED").length} day(s) pending NASA data — will auto-process when satellite data becomes available (5-6 day lag).
-              </div>
-            )}
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead><tr>{["Date","PR","NASA GHI","Verdict","TX Hash"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 12px", fontSize: 9, letterSpacing: ".15em", textTransform: "uppercase", color: "var(--text3)", borderBottom: "1px solid var(--border)", fontWeight: 600 }}>{h}</th>)}</tr></thead>
               <tbody>
@@ -223,13 +261,16 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                   <tr key={i}>
                     <td style={{ padding: "10px 12px", fontSize: 10, color: "var(--text3)", fontFamily: "var(--mono)", borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.date}</td>
                     <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 12, color: log.calculated_pr >= 0.75 ? "var(--green)" : "var(--red)", fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.calculated_pr ? `${(log.calculated_pr * 100).toFixed(0)}%` : "—"}</td>
-                    <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--blue)", borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.nasa_ghi}</td>
+                    <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--blue)", borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.nasa_ghi ? `${log.nasa_ghi} kWh/m²` : "—"}</td>
                     <td style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,.025)" }}><span style={{ fontSize: 10, fontWeight: 700, color: log.verdict === "PENALTY" ? "var(--red)" : log.verdict === "COMPLIANT" ? "var(--green)" : "var(--slate)" }}>{log.verdict}</span></td>
                     <td style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,.025)" }}>
                       {log.blockchain_tx_hash ? <span style={{ fontSize: 10, color: "var(--blue)", cursor: "pointer", fontFamily: "var(--mono)" }} onClick={() => setTxModal(true)}>{log.blockchain_tx_hash.slice(0, 18)}... ↗</span> : <span style={{ fontSize: 10, color: "var(--text3)" }}>—</span>}
                     </td>
                   </tr>
                 ))}
+                {(auditData?.logs || []).filter(log => log.verdict !== "IGNORED").length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: "20px 12px", textAlign: "center", color: "var(--text3)", fontSize: 11 }}>No completed audits yet — first audit runs once NASA GHI data is available.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -248,6 +289,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
               {[
                 { l: "Gas Used", v: latestAudit?.gas_used?.toLocaleString() || "—" },
                 { l: "Block Number", v: latestAudit?.block_number?.toLocaleString() || "—" },
+
                 { l: "Network", v: chainStatus?.network || "Polygon Amoy Testnet" },
                 { l: "Status", v: latestAudit?.blockchain_tx_hash ? "✅ CONFIRMED" : chainStatus?.connected === false ? "⚠ Not Connected" : "—" },
               ].map(t => (
@@ -264,34 +306,73 @@ export default function BondDetail({ bond: initialBond, onBack }) {
         </div>
       )}
 
-      {/* ── LIVE MONITOR ── */}
-      {tab === "monitor" && (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16 }}>📡 Audit Timeline — Today</div>
-          <div>
-            {[
-              { t: "06:00:00", e: "Monitoring job started by Celery Beat scheduler", tag: "SCHEDULER", c: "var(--text3)" },
-              { t: "06:00:12", e: `NASA POWER API request for (${bond.lat}°N, ${bond.lng}°E)`, tag: "API CALL", c: "var(--blue)" },
-              { t: "06:00:14", e: `GHI received: ${latestAudit?.nasa_ghi || "—"} kWh/m² · HTTP 200 OK`, tag: "SUCCESS", c: "var(--green)" },
-              { t: "06:00:15", e: `Production data fetched from PostgreSQL for ${bond.id}`, tag: "DB QUERY", c: "var(--amber)" },
-              { t: "06:00:15", e: `PR calculated: ${latestAudit?.calculated_pr?.toFixed(4) || "—"} → verdict: ${latestAudit?.verdict || "—"}`, tag: "COMPUTE", c: "var(--cyan)" },
-              { t: "06:01:03", e: `Smart contract write initiated — ${chainStatus?.network || "Polygon Amoy Testnet"}`, tag: "BLOCKCHAIN", c: "var(--blue)" },
-              { t: "06:04:07", e: `TX confirmed: ${latestAudit?.blockchain_tx_hash?.slice(0,20) || "—"}...`, tag: "CONFIRMED", c: "var(--green)" },
-              { t: "06:05:01", e: "Alert pipeline triggered — Email + SMS queued", tag: "ALERT", c: "var(--amber)" },
-              { t: "06:05:10", e: "Audit record written to PostgreSQL with TX hash", tag: "LOGGED", c: "var(--text3)" },
-            ].map((item, i, arr) => (
-              <div key={i} style={{ display: "flex", gap: 12 }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                  <div style={{ width: 9, height: 9, borderRadius: "50%", background: item.c, boxShadow: `0 0 6px ${item.c}`, marginTop: 3 }} />
-                  {i < arr.length - 1 && <div style={{ flex: 1, width: 1, background: "var(--border)", margin: "3px 0", minHeight: 18 }} />}
-                </div>
-                <div style={{ paddingBottom: 16 }}>
-                  <div style={{ fontSize: 10, color: "var(--text3)", letterSpacing: ".06em", fontFamily: "var(--mono)" }}>{item.t}</div>
-                  <div style={{ fontSize: 12, color: "var(--text)", marginTop: 2, lineHeight: 1.4 }}>{item.e}</div>
-                  <span style={{ display: "inline-block", fontSize: 9, padding: "1px 7px", borderRadius: 100, marginTop: 4, fontWeight: 600, letterSpacing: ".06em", background: `${item.c}18`, color: item.c, border: `1px solid ${item.c}33` }}>{item.tag}</span>
-                </div>
+      {/* ── AUDIT LOG ── */}
+      {tab === "auditlog" && (
+        <div>
+          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              📋 Audit History — All Runs
+              <span style={{ fontSize: 9, color: "var(--text3)" }}>{auditData?.logs?.filter(l => l.verdict !== "IGNORED").length || 0} RECORDS</span>
+            </div>
+            {(!auditData?.logs || auditData.logs.filter(l => l.verdict !== "IGNORED").length === 0) ? (
+              <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text3)", fontSize: 12 }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
+                No audit records yet. The first audit runs at 06:00 IST.<br />
+                <span style={{ fontSize: 10 }}>You can trigger a manual audit via <code style={{ fontFamily: "var(--mono)", background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>POST /api/audit/run</code></span>
               </div>
-            ))}
+            ) : (
+              <div>
+                {auditData.logs.filter(l => l.verdict !== "IGNORED").map((log, i, arr) => {
+                  const isP = log.verdict === "PENALTY";
+                  const isC = log.verdict === "COMPLIANT";
+                  const nodeColor = isP ? "var(--red)" : isC ? "var(--green)" : "var(--slate)";
+                  const rateChanged = log.rate_after !== log.rate_before;
+                  return (
+                    <div key={i} style={{ display: "flex", gap: 14 }}>
+                      {/* Timeline track */}
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, width: 20 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: "50%", background: nodeColor, boxShadow: `0 0 8px ${nodeColor}`, marginTop: 4, flexShrink: 0 }} />
+                        {i < arr.length - 1 && <div style={{ flex: 1, width: 1, background: "var(--border)", minHeight: 24, margin: "4px 0" }} />}
+                      </div>
+                      {/* Content */}
+                      <div style={{ paddingBottom: 18, flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, color: "var(--text3)", fontFamily: "var(--mono)" }}>{log.date}</span>
+                          <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, letterSpacing: ".07em",
+                            background: isP ? "var(--red-dim)" : isC ? "var(--green-dim)" : "rgba(84,110,122,.1)",
+                            color: isP ? "var(--red)" : isC ? "var(--green)" : "var(--slate)",
+                            border: `1px solid ${isP ? "rgba(255,61,61,.25)" : isC ? "rgba(0,230,118,.25)" : "rgba(84,110,122,.2)"}`,
+                          }}>{log.verdict}</span>
+                          {rateChanged && (
+                            <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, background: "rgba(33,150,243,.12)", color: "var(--blue)", border: "1px solid rgba(33,150,243,.25)" }}>
+                              🔗 RATE CHANGE
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, auto)", gap: "4px 16px", fontSize: 10 }}>
+                          <span style={{ color: "var(--text3)" }}>PR</span>
+                          <span style={{ color: nodeColor, fontWeight: 700, fontFamily: "var(--mono)" }}>
+                            {log.calculated_pr != null ? `${(log.calculated_pr * 100).toFixed(1)}%` : "—"}
+                          </span>
+                          <span style={{ color: "var(--text3)" }}>NASA GHI</span>
+                          <span style={{ color: "var(--blue)", fontFamily: "var(--mono)" }}>{log.nasa_ghi ? `${log.nasa_ghi} kWh/m²` : "—"}</span>
+                          <span style={{ color: "var(--text3)" }}>Actual kWh</span>
+                          <span style={{ fontFamily: "var(--mono)", color: "var(--text2)" }}>{log.actual_kwh ? `${log.actual_kwh.toLocaleString()}` : "—"}</span>
+                          <span style={{ color: "var(--text3)" }}>Rate</span>
+                          <span style={{ fontFamily: "var(--mono)", color: rateChanged ? "var(--amber)" : "var(--text2)" }}>
+                            {log.rate_before}% {rateChanged ? `→ ${log.rate_after}%` : ""}
+                          </span>
+                        </div>
+                        {log.blockchain_tx_hash && (
+                          <div style={{ marginTop: 5, fontSize: 10, color: "var(--blue)", fontFamily: "var(--mono)", cursor: "pointer" }} onClick={() => setTxModal(true)}>
+                            🔗 {log.blockchain_tx_hash.slice(0, 22)}... ↗
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );                })}
+              </div>
+            )}
           </div>
         </div>
       )}

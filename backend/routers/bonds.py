@@ -72,6 +72,7 @@ class BondOut(BaseModel):
     maturity_date: Optional[date]
     created_at: Optional[datetime] = None
     today_pr: Optional[float] = None
+    today_pr_date: Optional[date] = None   # date of the latest real audit — lets frontend detect stale PR
     consecutive_penalty: int = 0
     consecutive_compliant: int = 0
 
@@ -103,6 +104,7 @@ def _enrich_bond(bond: Bond, db: Session) -> BondOut:
     )
     out = BondOut.model_validate(bond)
     out.today_pr = float(latest_real_log.calculated_pr) if latest_real_log else None
+    out.today_pr_date = latest_real_log.date if latest_real_log else None
     out.consecutive_penalty = latest_log.consecutive_penalty if latest_log else 0
     out.consecutive_compliant = latest_log.consecutive_compliant if latest_log else 0
     return out
@@ -204,7 +206,6 @@ def get_timeseries(
     days: int = Query(default=60, ge=7, le=365),
     db: Session = Depends(get_db),
 ):
-    
     cache_key = f"bond:timeseries:{bond_id}:{days}"
     cached = redis_client.get(cache_key)
     if cached:
@@ -214,7 +215,10 @@ def get_timeseries(
     if not bond:
         raise HTTPException(status_code=404, detail="Bond not found")
 
-    since = date.today() - timedelta(days=days)
+    # Clip start to bond's registration date — never show dates before the bond existed
+    bond_start = bond.created_at.date() if bond.created_at else date.today()
+    since = max(bond_start, date.today() - timedelta(days=days))
+
     logs = (
         db.query(AuditLog)
         .filter(AuditLog.bond_id == bond_id, AuditLog.date >= since)
@@ -228,6 +232,8 @@ def get_timeseries(
         .all()
     )
     production_map = {str(p.date): float(p.kwh) for p in production}
+
+    audited_dates = {str(log.date) for log in logs}
 
     perf_series = [
         {
@@ -254,6 +260,17 @@ def get_timeseries(
         }
         for log in logs
     ]
+
+    # Add PENDING entries: production submitted but no audit yet (NASA lag or not yet run)
+    for p in production:
+        if str(p.date) not in audited_dates:
+            perf_series.append({"day": str(p.date), "pr": None, "nasa_ghi": None, "verdict": "PENDING", "threshold": 0.75})
+            energy_series.append({"day": str(p.date), "actual": float(p.kwh), "predicted": None})
+            interest_series.append({"day": str(p.date), "rate": float(bond.current_rate)})
+
+    perf_series.sort(key=lambda x: x["day"])
+    energy_series.sort(key=lambda x: x["day"])
+    interest_series.sort(key=lambda x: x["day"])
 
     response = {
         "bond_id": bond_id,

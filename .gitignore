@@ -4,12 +4,14 @@ Thumbs.db
 *.tmp
 .idea/
 .vscode/
+commands.txt
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
 backend/venv/
 backend/.env
 

@@ -19,13 +19,25 @@ export default function DataEntry() {
 
   const today = new Date();
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  // Day of week offset for the 1st of the month (0=Sun→6, we want Mon=0)
+  const firstDow = (new Date(today.getFullYear(), today.getMonth(), 1).getDay() + 6) % 7;
 
   const { data: missingData } = useQuery({
     queryKey: ["missing", form.bond_id, today.getFullYear(), today.getMonth() + 1],
     queryFn: () => fetchMissingDays(form.bond_id, today.getFullYear(), today.getMonth() + 1),
     enabled: !!form.bond_id,
   });
+
   const missingSet = new Set((missingData?.missing_days || []).map(d => parseInt(d.split("-")[2])));
+  const submittedSet = new Set((missingData?.submitted_dates || []).map(d => parseInt(d.split("-")[2])));
+
+  // Bond creation date — if bond was created this month, days before it are not applicable
+  const bondCreatedDay = missingData?.bond_created
+    ? (new Date(missingData.bond_created).getMonth() === today.getMonth() &&
+       new Date(missingData.bond_created).getFullYear() === today.getFullYear())
+      ? new Date(missingData.bond_created).getDate()
+      : 0  // created before this month → all days applicable
+    : null; // no bond selected
 
   const handleSubmit = () => {
     if (!form.bond_id || !form.date || !form.kwh) return;
@@ -56,7 +68,7 @@ export default function DataEntry() {
               <div style={{ padding: 24, textAlign: "center", background: "var(--green-dim)", border: "1px solid rgba(0,230,118,.2)", borderRadius: "var(--r2)" }}>
                 <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
                 <div style={{ color: "var(--green)", fontWeight: 700, marginBottom: 4 }}>Entry Submitted!</div>
-                <div style={{ fontSize: 11, color: "var(--text2)" }}>PR will be calculated in tonight's audit run.</div>
+                <div style={{ fontSize: 11, color: "var(--text2)" }}>PR will be calculated in the next audit run.</div>
                 <button onClick={() => setSubmitted(false)} style={{ marginTop: 12, padding: "8px 16px", background: "var(--card2)", border: "1px solid var(--border2)", color: "var(--text)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 11, fontFamily: "var(--mono)" }}>
                   Submit Another
                 </button>
@@ -100,40 +112,112 @@ export default function DataEntry() {
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>
               📅 {today.toLocaleDateString("en-IN", { month: "long", year: "numeric" })} — Data Coverage
             </div>
-            <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-              {[["var(--red-dim)", "rgba(255,61,61,.3)", "Missing"], ["var(--green-dim)", "rgba(0,230,118,.3)", "Submitted"], ["var(--border)", "var(--border)", "Future"]].map(([bg, border, l]) => (
-                <div key={l} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text2)" }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 2, background: bg, border: `1px solid ${border}` }} /> {l}
+
+            {/* Legend */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+              {[
+                ["var(--green-dim)", "rgba(0,230,118,.3)", "var(--green)", "Submitted"],
+                ["var(--red-dim)", "rgba(255,61,61,.3)", "var(--red)", "Missing"],
+                ["rgba(255,255,255,.02)", "var(--border)", "var(--text3)", "Future"],
+                ["rgba(255,255,255,.01)", "rgba(255,255,255,.04)", "var(--text3)", "N/A"],
+              ].map(([bg, border, color, label]) => (
+                <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "var(--text2)" }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: bg, border: `1px solid ${border}` }} />
+                  <span style={{ color }}>{label}</span>
                 </div>
               ))}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 6 }}>
-              {["M","T","W","T","F","S","S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 9, color: "var(--text3)", padding: "4px 0" }}>{d}</div>)}
+
+            {/* Day-of-week headers */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 4 }}>
+              {["M","T","W","T","F","S","S"].map((d, i) => (
+                <div key={i} style={{ textAlign: "center", fontSize: 9, color: "var(--text3)", padding: "2px 0" }}>{d}</div>
+              ))}
             </div>
+
+            {/* Calendar grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
+              {/* Empty cells for day-of-week offset */}
+              {Array.from({ length: firstDow }).map((_, i) => (
+                <div key={`e${i}`} />
+              ))}
+
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
                 const isToday = day === today.getDate();
-                const isMissing = missingSet.has(day);
                 const isFuture = day > today.getDate();
+                // Before bond was registered this month → not applicable
+                const isNA = !form.bond_id
+                  ? false
+                  : bondCreatedDay !== null && bondCreatedDay > 0 && day < bondCreatedDay;
+                const isSubmitted = !isNA && submittedSet.has(day);
+                const isMissing = !isNA && !isFuture && missingSet.has(day);
+
+                let bg = "var(--card2)";
+                let borderColor = "var(--border)";
+                let color = "var(--text2)";
+                let opacity = 1;
+                let dotColor = null;
+
+                if (isNA) {
+                  bg = "rgba(255,255,255,.01)";
+                  borderColor = "rgba(255,255,255,.04)";
+                  color = "var(--text3)";
+                  opacity = 0.35;
+                } else if (isFuture) {
+                  bg = "rgba(255,255,255,.02)";
+                  opacity = 0.25;
+                  color = "var(--text3)";
+                } else if (isSubmitted) {
+                  bg = "var(--green-dim)";
+                  borderColor = "rgba(0,230,118,.35)";
+                  color = "var(--green)";
+                  dotColor = "var(--green)";
+                } else if (isMissing) {
+                  bg = "var(--red-dim)";
+                  borderColor = "rgba(255,61,61,.35)";
+                  color = "var(--red)";
+                  dotColor = "var(--red)";
+                }
+
+                if (isToday) borderColor = "var(--green)";
+
                 return (
-                  <div key={i} style={{
-                    aspectRatio: 1, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, position: "relative",
-                    background: isMissing ? "var(--red-dim)" : isFuture ? "rgba(255,255,255,.02)" : "var(--card2)",
-                    border: `1px solid ${isToday ? "var(--green)" : isMissing ? "rgba(255,61,61,.3)" : "var(--border)"}`,
-                    color: isToday ? "var(--green)" : isMissing ? "var(--red)" : isFuture ? "var(--text3)" : "var(--text2)",
-                    fontWeight: isToday ? 700 : 400, opacity: isFuture ? .3 : 1,
+                  <div key={day} style={{
+                    aspectRatio: 1, borderRadius: 3, display: "flex", alignItems: "center",
+                    justifyContent: "center", fontSize: 10, position: "relative",
+                    background: bg, border: `1px solid ${borderColor}`,
+                    color, fontWeight: isToday ? 700 : 400, opacity,
                   }}>
                     {day}
-                    {isMissing && <div style={{ position: "absolute", top: 2, right: 2, width: 4, height: 4, borderRadius: "50%", background: "var(--red)" }} />}
+                    {dotColor && (
+                      <div style={{ position: "absolute", top: 2, right: 2, width: 4, height: 4, borderRadius: "50%", background: dotColor }} />
+                    )}
                   </div>
                 );
               })}
             </div>
-            {missingData && (
-              <div style={{ marginTop: 12, padding: 10, background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.2)", borderRadius: "var(--r2)" }}>
-                <div style={{ fontSize: 10, color: "var(--red)", fontWeight: 700, marginBottom: 4 }}>⚠ {missingData.missing_days.length} MISSING DAYS</div>
-                <div style={{ fontSize: 10, color: "var(--text2)" }}>{missingData.submitted_days} of {missingData.total_days} days submitted this month.</div>
+
+            {/* Summary */}
+            {form.bond_id && missingData && (
+              <div style={{ marginTop: 12 }}>
+                {missingData.missing_days.length > 0 ? (
+                  <div style={{ padding: 10, background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.2)", borderRadius: "var(--r2)" }}>
+                    <div style={{ fontSize: 10, color: "var(--red)", fontWeight: 700, marginBottom: 3 }}>⚠ {missingData.missing_days.length} MISSING DAYS</div>
+                    <div style={{ fontSize: 10, color: "var(--text2)" }}>{missingData.submitted_days} of {missingData.total_days} applicable days submitted.</div>
+                  </div>
+                ) : (
+                  <div style={{ padding: 10, background: "var(--green-dim)", border: "1px solid rgba(0,230,118,.2)", borderRadius: "var(--r2)" }}>
+                    <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700 }}>✅ All days submitted</div>
+                    <div style={{ fontSize: 10, color: "var(--text2)", marginTop: 2 }}>{missingData.submitted_days} of {missingData.total_days} days covered this month.</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!form.bond_id && (
+              <div style={{ marginTop: 10, padding: 10, background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--text3)", textAlign: "center" }}>
+                Select a bond to see data coverage
               </div>
             )}
           </div>
@@ -142,29 +226,21 @@ export default function DataEntry() {
 
       {mode === "iot" && (
         <div>
-          {/* IoT note — no hardcoded bond IDs; shows real bonds from DB */}
           <div style={{ padding: "10px 14px", background: "var(--amber-dim)", border: "1px solid rgba(255,179,0,.25)", borderRadius: "var(--r2)", marginBottom: 14, fontSize: 11, color: "var(--text2)", lineHeight: 1.7 }}>
             📡 <strong style={{ color: "var(--amber)" }}>IoT Auto-Sync:</strong> Inverters push data via{" "}
             <code style={{ fontFamily: "var(--mono)", fontSize: 10, background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>POST /api/production/iot</code>.
-            Each payload must include a <code style={{ fontFamily: "var(--mono)", fontSize: 10, background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>bond_id</code> matching one of your registered bonds below.
+            Each payload must include a <code style={{ fontFamily: "var(--mono)", fontSize: 10, background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>bond_id</code> matching one of your registered bonds.
           </div>
-
-          {/* Show real bonds from the database as sync targets */}
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🌐 Bond IoT Targets</div>
             {bonds.length === 0 ? (
-              <div style={{ padding: 24, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>No bonds registered yet. Create a bond first.</div>
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>No bonds registered yet.</div>
             ) : (
               bonds.map(b => (
                 <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", marginBottom: 8 }}>
                   <div>
-                    <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-                      📡 {b.name}
-                      <span style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)" }}>({b.id})</span>
-                    </div>
-                    <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 3, fontFamily: "var(--mono)" }}>
-                      Endpoint: POST /api/production/iot · body: {"{"} bond_id: "{b.id}", date, kwh {"}"}
-                    </div>
+                    <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>📡 {b.name}<span style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)" }}>({b.id})</span></div>
+                    <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 3, fontFamily: "var(--mono)" }}>POST /api/production/iot · {"{"} bond_id: "{b.id}", date, kwh {"}"}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: b.status === "ACTIVE" ? "var(--green)" : "var(--slate)" }}>
                     <div style={{ width: 6, height: 6, borderRadius: "50%", background: b.status === "ACTIVE" ? "var(--green)" : "var(--slate)", animation: b.status === "ACTIVE" ? "pulse 2s infinite" : "none" }} />
@@ -174,8 +250,6 @@ export default function DataEntry() {
               ))
             )}
           </div>
-
-          {/* Example curl command, always uses the first active bond if available */}
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>📋 Example IoT Push</div>
             <pre style={{ background: "var(--void)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "12px 14px", fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", lineHeight: 1.8, overflowX: "auto", whiteSpace: "pre-wrap" }}>
@@ -187,9 +261,6 @@ export default function DataEntry() {
     "kwh": 24800.0
   }'`}
             </pre>
-            <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 8 }}>
-              The backend validates bond_id exists in the database, stores the reading, and uses it in the next 6 AM audit.
-            </div>
           </div>
         </div>
       )}

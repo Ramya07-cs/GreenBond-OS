@@ -42,16 +42,15 @@ export default function Dashboard({ onSelectBond }) {
   return (
     <div>
       {/* KPI Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
         <KPI label="📊 Active Bonds" value={activeCount} sub={`${summary?.total_bonds ?? bonds.length} total`} color="var(--green)" />
         <KPI label="💰 Total Value Locked" value={`₹${(tvl / 1e7).toFixed(1)}Cr`} sub="across portfolio" color="var(--text)" barColor="var(--amber)" />
         <KPI label="🚨 Under Penalty" value={penaltyCount} sub={penaltyCount ? "Rate hike active" : "All compliant"} color={penaltyCount ? "var(--red)" : "var(--green)"} barColor={penaltyCount ? "var(--red)" : "var(--green)"} />
-        <KPI label="📈 Avg PR" value={avgPR ? `${(avgPR * 100).toFixed(1)}%` : "—"} sub="threshold 75%" color={avgPR >= 0.75 ? "var(--green)" : "var(--red)"} barColor={avgPR >= 0.75 ? "var(--green)" : "var(--red)"} />
         <KPI label="🔔 Critical Alerts" value={alertSummary?.unread_critical || 0} sub="today" color={alertSummary?.unread_critical ? "var(--red)" : "var(--green)"} barColor="var(--cyan)" />
       </div>
 
       {/* Health Map + Recent */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+      <div style={{ marginBottom: 14 }}>
         <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🗺️ Portfolio Health</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
@@ -75,14 +74,7 @@ export default function Dashboard({ onSelectBond }) {
           </div>
         </div>
 
-        {/* Portfolio PR Sparkline */}
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
-            📈 Portfolio PR (30d)
-            <span style={{ fontSize: 9, color: "var(--text3)" }}>FIRST BOND SAMPLE</span>
-          </div>
-          {bonds[0] && <PRSparkline bondId={bonds[0].id} />}
-        </div>
+
       </div>
 
       {/* Bond Table */}

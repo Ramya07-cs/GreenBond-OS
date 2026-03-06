@@ -1,17 +1,17 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBonds } from "../hooks/useBonds";
-import { fetchSystemHealth } from "../api";
+import { fetchSystemHealth, fetchAlertSummary } from "../api";
 
 const NAV = [
   { id: "dashboard", icon: "📊", label: "Dashboard" },
-  { id: "map",       icon: "🗺️", label: "Map View" },
-  { id: "alerts",    icon: "🔔", label: "Alert Center", badge: true },
+  { id: "alerts",    icon: "🔔", label: "Alert Center" },
   { id: "entry",     icon: "📥", label: "Data Entry" },
   { id: "health",    icon: "🖥️", label: "System Health" },
 ];
 
 // Keys to show in the sidebar footer. These match the service keys
+// returned by GET /api/health → services.
 const SYS_CHECKS = [
   { label: "Celery", key: "celery_worker" },
   { label: "Redis",  key: "redis" },
@@ -23,10 +23,20 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
   const [clock, setClock] = useState(new Date());
 
   // Poll the health endpoint every 30s — same interval as SystemHealth view.
+  // retry: false prevents hammering the server if it's down.
   const { data: health } = useQuery({
     queryKey: ["system-health"],
     queryFn: fetchSystemHealth,
     refetchInterval: 30_000,
+    retry: false,
+    // Don't throw on error — sidebar should degrade gracefully, not crash.
+    throwOnError: false,
+  });
+
+  const { data: alertSummary } = useQuery({
+    queryKey: ["alert-summary"],
+    queryFn: fetchAlertSummary,
+    refetchInterval: 60_000,
     retry: false,
     throwOnError: false,
   });
@@ -38,6 +48,8 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
 
   const statusColor = { PENALTY: "var(--red)", ACTIVE: "var(--green)", MATURED: "var(--slate)" };
 
+  // Resolve a service's ok/status from the health response.
+  // Returns { ok, label } — ok is null while loading (no health data yet).
   function svcStatus(key) {
     if (!health) return { ok: null, label: "..." };
     const svc = health.services?.[key];
@@ -74,7 +86,7 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
           >
             <span style={{ fontSize: 14, width: 18, textAlign: "center" }}>{n.icon}</span>
             {n.label}
-            {n.badge && <span style={{ marginLeft: "auto", background: "var(--red)", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 100 }}>!</span>}
+            {n.id === "alerts" && (alertSummary?.unread_critical > 0) && <span style={{ marginLeft: "auto", background: "var(--red)", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 100 }}>{alertSummary.unread_critical}</span>}
           </div>
         ))}
 
@@ -97,7 +109,7 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
               animation: b.status === "PENALTY" ? "pulse 1.5s infinite" : "none",
             }} />
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {b.name.split(" ").slice(0, 2).join(" ")}
+              {b.name}
             </span>
           </div>
         ))}
@@ -108,6 +120,7 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
         <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", marginBottom: 5, textTransform: "uppercase" }}>System</div>
         {SYS_CHECKS.map(s => {
           const { ok, label } = svcStatus(s.key);
+          // ok === null means still loading (no health data yet)
           const dotColor = ok === null ? "var(--text3)" : ok ? "var(--green)" : "var(--red)";
           const textColor = ok === null ? "var(--text3)" : ok ? "var(--green)" : "var(--red)";
           return (
@@ -117,6 +130,7 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
                 <div style={{
                   width: 6, height: 6, borderRadius: "50%",
                   background: dotColor,
+                  // Only pulse when confirmed OK — not while loading or errored
                   animation: ok === true ? "pulse 2s infinite" : "none",
                 }} />
                 {label}

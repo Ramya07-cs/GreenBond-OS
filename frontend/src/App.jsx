@@ -3,7 +3,6 @@ import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import Dashboard from "./views/Dashboard";
 import BondDetail from "./views/BondDetail";
-import MapView from "./views/MapView";
 import Alerts from "./views/Alerts";
 import DataEntry from "./views/DataEntry";
 import SystemHealth from "./views/SystemHealth";
@@ -34,7 +33,6 @@ body{background:var(--void);color:var(--text);font-family:var(--mono);min-height
 
 const VIEW_TITLES = {
   dashboard: "Global Overview",
-  map: "Portfolio Map",
   alerts: "Alert Center",
   entry: "Data Entry",
   health: "System Health",
@@ -80,7 +78,6 @@ export default function App() {
           <main style={{ flex: 1, overflowY: "auto", padding: 20 }}>
             {view === "dashboard" && <Dashboard onSelectBond={handleSelectBond} />}
             {view === "detail" && selectedBond && <BondDetail bond={selectedBond} onBack={handleBack} />}
-            {view === "map" && <MapView onSelectBond={handleSelectBond} />}
             {view === "alerts" && <Alerts />}
             {view === "entry" && <DataEntry />}
             {view === "health" && <SystemHealth />}

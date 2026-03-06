@@ -36,6 +36,7 @@ def get_audit_logs(
                 "date": str(log.date),
                 "nasa_ghi": float(log.nasa_ghi) if log.nasa_ghi else None,
                 "actual_kwh": float(log.actual_kwh) if log.actual_kwh else None,
+                "expected_kwh": float(log.expected_kwh) if log.expected_kwh else None,
                 "calculated_pr": float(log.calculated_pr) if log.calculated_pr else None,
                 "verdict": log.verdict,
                 "consecutive_penalty": log.consecutive_penalty,
