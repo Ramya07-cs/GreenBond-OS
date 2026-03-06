@@ -1,6 +1,6 @@
 <div align="center">
 
-#  GreenBond OS
+# GreenBond OS
 
 **Blockchain-verified smart green bond monitoring platform**
 
@@ -13,24 +13,22 @@
 [![Polygon](https://img.shields.io/badge/Polygon-Amoy_Testnet-8247E5?style=flat-square&logo=polygon&logoColor=white)](https://polygon.technology)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-*Automated PR calculation · Penalty enforcement · Immutable audit trails · Live satellite data*
+*Automated PR calculation · Penalty enforcement · Immutable blockchain audit trails · Live NASA satellite data*
 
 </div>
 
 ---
 
-## What This System Does
+## Overview
 
-GreenBond OS automates the entire compliance lifecycle of a green bond. Every day at **06:00 IST**, the system:
+GreenBond OS automates the full compliance lifecycle of a green bond. Every day at **06:00 IST**, the system:
 
 1. Fetches satellite irradiance data from the **NASA POWER API** for each bond's GPS coordinates
 2. Compares it against inverter production logs submitted via the UI or IoT push
 3. Calculates a **Performance Ratio (PR)** using industry-standard formulas
-4. Detects underperformance streaks and — if the bond crosses the 3-day threshold — **executes a rate change on the Polygon blockchain**
-5. Dispatches **SMS and email alerts** to the issuer and investors
-6. Exposes everything through a live React dashboard with Glass Box audit transparency
-
-What the frontend shows as a percentage and a coloured badge is the output of a multi-stage pipeline that crosses four external systems, two databases, a message queue, and a smart contract.
+4. Detects underperformance streaks and — upon crossing the 3-day threshold — **executes a rate change on the Polygon blockchain**
+5. Dispatches **SMS and email alerts** to the issuer
+6. Surfaces everything through a live React dashboard with full Glass Box audit transparency
 
 ---
 
@@ -39,7 +37,8 @@ What the frontend shows as a percentage and a coloured badge is the output of a 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                     FRONTEND (React + Vite)                     │
-│   Dashboard · Bond Detail · Glass Box · Alert Center · Map      │
+│  Dashboard · Bond Detail · Glass Box · Alert Center · Data Entry│
+│  Bond Registration · Blockchain Explorer · System Health        │
 └────────────────────────────┬────────────────────────────────────┘
                              │ HTTP /api/*
 ┌────────────────────────────▼────────────────────────────────────┐
@@ -68,8 +67,8 @@ What the frontend shows as a percentage and a coloured badge is the output of a 
        │   ┌──────────▼──────┐  ┌─────────────▼──────┐  ┌────────▼──────┐
        │   │  NASA POWER API │  │ Polygon Smart      │  │ SendGrid /    │
        │   │  (free, no key) │  │ Contract           │  │ Twilio SMS    │
-       └───┘  GHI kWh/m² ←   │  │ recordRateChange() │  │ alert alerts  │
-           └───────────────┘    └────────────────────┘  └───────────────┘
+       └───│  GHI kWh/m²     │  │ recordRateChange() │  │ alert alerts  │
+           └─────────────────┘  └────────────────────┘  └───────────────┘
 ```
 
 ---
@@ -78,7 +77,7 @@ What the frontend shows as a percentage and a coloured badge is the output of a 
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| API server | FastAPI 0.111 + Uvicorn | REST endpoints, Swagger UI, async I/O |
+| API server | FastAPI 0.111 + Uvicorn | REST endpoints, async I/O |
 | ORM | SQLAlchemy 2.0 | Database models, session management |
 | Database | PostgreSQL 15 | Bonds, audits, production entries, alerts |
 | Task queue | Celery 5.4 | Async background audit execution with retries |
@@ -98,27 +97,86 @@ What the frontend shows as a percentage and a coloured badge is the output of a 
 
 **Prerequisites:** Python 3.13, Node.js 18+, PostgreSQL 15, Redis 7
 
+---
+
+### 1. PostgreSQL Setup
+
+**macOS**
 ```bash
-# 1. Clone the repo
+brew install postgresql@15
+brew services start postgresql@15
+```
+
+**Ubuntu / Debian**
+```bash
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+
+**Windows**
+Download and run the installer from [postgresql.org/download/windows](https://www.postgresql.org/download/windows). During setup, set a password for the `postgres` superuser and leave the default port as `5432`.
+
+**Create the database and user** (all platforms):
+```bash
+psql -U postgres -c "CREATE USER greenbond WITH PASSWORD 'password';"
+psql -U postgres -c "CREATE DATABASE greenbonds OWNER greenbond;"
+```
+
+> The `DATABASE_URL` in `.env` should be `postgresql://greenbond:password@localhost:5432/greenbonds`. Tables are created automatically on first server startup — no migrations needed.
+
+---
+
+### 2. Redis Setup
+
+**macOS**
+```bash
+brew install redis
+brew services start redis
+```
+
+**Ubuntu / Debian**
+```bash
+sudo apt update
+sudo apt install -y redis-server
+sudo systemctl start redis
+sudo systemctl enable redis
+```
+
+**Windows**
+Redis does not have an official Windows build. Use one of:
+- **WSL2** — install Redis inside a Ubuntu WSL2 instance using the Linux steps above
+- **Docker** — `docker run -d -p 6379:6379 redis:7`
+
+**Verify Redis is running:**
+```bash
+redis-cli ping   # should return: PONG
+```
+
+> The `REDIS_URL` in `.env` should be `redis://localhost:6379/0`.
+
+---
+
+### 3. Application Setup
+
+```bash
+# Clone the repo
 git clone https://github.com/yourname/greenbond-os.git
 cd greenbond-os
 
-# 2. Backend setup
+# Backend
 cd backend
 python3 -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate.bat
 pip install -r requirements.txt
 cp .env.example .env              # Fill in your credentials
 
-# 3. Create the database
-psql -U postgres -c "CREATE USER greenbond WITH PASSWORD 'password';"
-psql -U postgres -c "CREATE DATABASE greenbonds OWNER greenbond;"
-
-# 4. Frontend setup
+# Frontend
 cd ../frontend && npm install
 ```
 
-Open **4 terminals** and run each process:
+Run all four processes in separate terminals:
 
 ```bash
 # Terminal 1 — FastAPI server
@@ -137,52 +195,59 @@ celery -A tasks.celery_app beat --loglevel=info
 cd frontend && npm run dev
 ```
 
-| URL | What it is |
+| URL | Description |
 |---|---|
 | http://localhost:5173 | Live dashboard |
-| http://localhost:8000/docs | Swagger API docs |
 | http://localhost:8000/api/health/ | System health check |
+
+---
+
+## Frontend Views
+
+| View | Description |
+|---|---|
+| **Dashboard** | Portfolio KPIs, compliance rate, bond table with live PR and rates |
+| **Bond Detail** | Per-bond analytics, PR/energy/interest charts, streak tracker, audit log |
+| **Glass Box** | Full audit transparency — NASA GHI, PR formula, verdict reasoning |
+| **Blockchain** tab | Per-bond blockchain payload, TX hash verification via Polygonscan |
+| **Data Entry** | Manual daily kWh submission with monthly coverage calendar |
+| **IoT Auto-Sync** | Form-based IoT push with live payload preview and bond endpoint reference |
+| **Bond Registration** | Full bond registration form with live JSON preview |
+| **Blockchain Explorer** | Network status, TX lookup, manual audit trigger with bond snapshot |
+| **Alert Center** | Full alert history with type, severity, and on-chain TX details |
+| **System Health** | Live status for PostgreSQL, Redis, Celery, Polygon, and NASA API |
 
 ---
 
 ## The Daily Audit Pipeline
 
-Each active bond runs through this 8-step pipeline every morning at 06:00 IST via Celery Beat.
+Each active bond runs through this 8-step pipeline every morning at 06:00 IST.
 
 ### Step 1 — NASA GHI Fetch
 
-```python
-nasa_service.get_ghi(lat, lng, target_date, bond_id)
-```
+Queries the NASA POWER API (`ALLSKY_SFC_SW_DWN`, `RE` community) for the bond's GPS coordinates. Returns Global Horizontal Irradiance in kWh/m².
 
-Queries the NASA POWER API (`ALLSKY_SFC_SW_DWN` parameter, `RE` community) for the bond's GPS coordinates. Returns Global Horizontal Irradiance in kWh/m².
+**Redis caching:** Results are stored under `nasa:ghi:{bond_id}:{YYYYMMDD}` with a 24h TTL. Historical GHI never changes, so cache hits are permanent for past dates.
 
-**Redis caching:** Each result is stored under `nasa:ghi:{bond_id}:{YYYYMMDD}` with a 24h TTL. Historical GHI never changes, so cache hits are permanent for past dates.
-
-**NASA data lag:** NASA's satellite compositing introduces a 5–6 day lag. When user production data exists but GHI is not yet available, the audit skips silently — no log is written, and the date is retried automatically by the catchup system once satellite data arrives.
+**NASA data lag:** NASA's satellite compositing introduces a 5–6 day lag. When production data exists but GHI is not yet available, the audit produces an `IGNORED` verdict and is retried automatically by the catchup system.
 
 ### Step 2 — Production Data Retrieval
 
-```sql
-SELECT kwh FROM production_entries
-WHERE bond_id = :bond_id AND date = :audit_date
-```
+Reads the inverter kWh figure submitted manually via the Data Entry UI or automatically via `POST /api/production/iot`.
 
-Reads the inverter kWh figure submitted manually via the Data Entry UI or automatically via `POST /api/production/iot` by the inverter's push integration.
-
-If no entry exists for that date: a missing data alert is dispatched (email on day 1, SMS escalation every 3rd consecutive missing day). Missing days are **neutral** — they do not advance or reset the penalty streak.
+If no entry exists for a date, a missing data alert is dispatched — on day 1 via email, then every 3rd consecutive missing day via SMS. Missing days are **neutral** and do not advance or reset the penalty streak.
 
 ### Step 3 — Performance Ratio Calculation
 
 ```
-expected_kwh = NASA_GHI × capacity_kW × performance_factor
+expected_kwh = NASA_GHI × capacity_kW × performance_factor (0.80)
 actual_ghi   = actual_kwh ÷ (capacity_kW × performance_factor)
 PR           = actual_ghi ÷ NASA_GHI
 ```
 
-The **performance factor of 0.80** accounts for real-world system losses: inverter efficiency, wiring resistance, soiling, temperature derating, and mismatch losses. Industry standard range is 0.75–0.85.
+The performance factor of **0.80** accounts for inverter efficiency, wiring resistance, soiling, temperature derating, and mismatch losses.
 
-**Manipulation detection:** A PR above 1.0 is physically impossible — a solar panel cannot produce more energy than the irradiance the sun delivered. Any kWh submission yielding PR > 1.0 is automatically flagged as `PENALTY` with reason `"submitted kWh physically impossible"`. Treating it as `IGNORED` would silently allow fraudulent submissions to avoid penalty.
+**Manipulation detection:** A PR above 1.0 is physically impossible. Any submission yielding PR > 1.0 is automatically flagged as `PENALTY` — treating it as `IGNORED` would allow fraudulent submissions to silently bypass compliance.
 
 | Condition | Verdict |
 |---|---|
@@ -199,26 +264,21 @@ Recovery trigger: 7 consecutive COMPLIANT days  → rate = base_rate
 IGNORED days:     neither streak changes
 ```
 
-Both thresholds and the multiplier are fully configurable via `.env` — no code changes required.
+Both thresholds and the multiplier are configurable via `.env`.
 
 ### Step 5 — Blockchain Write
 
 If a rate change was triggered, `blockchain_service.write_rate_change()` calls `recordRateChange()` on the deployed Polygon smart contract. The payload includes bond ID, previous rate, new rate, trigger type, and a full PR snapshot. The **transaction hash and block number** are stored in `audit_logs`, creating a permanent cryptographic link between the database record and the on-chain event.
 
-**Lazy initialisation:** Web3 connects only on the first write call, not at import time. A misconfigured private key in `.env` disables blockchain writes only — all API routes, audit pipeline, and frontend continue to function normally.
+**Lazy initialisation:** Web3 connects only on the first write call. A misconfigured `.env` disables blockchain writes only — all API routes, the audit pipeline, and the frontend continue to function normally.
 
 ### Step 6 — Alert Dispatch
 
-Rate change events trigger:
-- **Email** (SendGrid) to the bond issuer and registered investors
-- **SMS** (Twilio) to the issuer's phone number
-- **Alert record** inserted into the `alerts` table (visible in the frontend Alert Center)
-
-Missing data alerts are rate-limited: sent on day 1 of a gap, then every 3rd consecutive day — prevents email quota exhaustion during multi-day outages or long catchup runs.
+Rate change events trigger email (SendGrid) and SMS (Twilio) to the bond issuer, plus an alert record in the `alerts` table visible in the frontend Alert Center. Missing data alerts are rate-limited to prevent email quota exhaustion during multi-day gaps.
 
 ### Step 7 — Audit Log Upsert
 
-Each audit record is an **upsert** against `(bond_id, date)`. Re-running the audit for the same bond+date overwrites the existing row rather than appending a duplicate. This makes manual re-runs, catchup, and the Beat scheduler all safe to call simultaneously — one record per bond per day, always.
+Each audit record is an **upsert** against `(bond_id, date)`. Re-running the audit for the same bond and date overwrites the existing row rather than appending a duplicate — making manual re-runs, catchup, and the Beat scheduler all safe to call simultaneously.
 
 ### Step 8 — Cache Invalidation
 
@@ -233,32 +293,18 @@ dashboard:summary
 health:full_check
 ```
 
-The frontend receives fresh data on the next API call without waiting for TTL expiry.
-
 ---
 
 ## Catchup System
 
-On every server startup, `catchup_missed_audits()` runs automatically via the FastAPI lifespan hook. It identifies every calendar day with no audit record for each active bond, and queues Celery tasks for each — staggered 10 seconds apart to avoid rate-limiting the NASA API.
+On every server startup, `catchup_missed_audits()` runs automatically via the FastAPI lifespan hook. It identifies every calendar day with no audit record for each active bond and queues Celery tasks staggered 10 seconds apart to avoid NASA API rate limits.
 
 | Behaviour | Detail |
 |---|---|
 | **Registration floor** | Never audits before a bond's `created_at` timestamp |
-| **Idempotency** | Checks existing records before queuing — safe to restart many times |
+| **Idempotency** | Checks existing records before queuing — safe to restart repeatedly |
 | **Safety cap** | 30-day maximum lookback prevents runaway task queues |
-| **NASA lag awareness** | Dates within the 5–6 day lag window will return IGNORED and be retried on the next startup |
-
----
-
-## Triggering a Manual Audit
-
-The pipeline fires automatically at 06:00 IST. To audit a specific date manually:
-
-```bash
-curl -X POST "http://localhost:8000/api/audit/run?target_date=2026-02-27&bond_id=GB-2025-001"
-```
-
-> **Note:** Always audit a date at least 6 days in the past. NASA data for recent dates is not yet available — auditing them will produce IGNORED verdicts and write no log record.
+| **NASA lag awareness** | Dates within the 5–6 day lag window produce `IGNORED` and are retried on next startup |
 
 ---
 
@@ -269,18 +315,19 @@ curl -X POST "http://localhost:8000/api/audit/run?target_date=2026-02-27&bond_id
 | `GET` | `/api/bonds/` | All bonds with live PR and streak stats |
 | `POST` | `/api/bonds/` | Register a new bond |
 | `GET` | `/api/bonds/{id}` | Single bond detail |
-| `GET` | `/api/bonds/{id}/timeseries` | PR + energy + rate chart data (60 days) |
+| `GET` | `/api/bonds/{id}/timeseries` | PR + energy + rate chart data |
 | `GET` | `/api/bonds/dashboard/summary` | Aggregated KPIs for the dashboard |
 | `POST` | `/api/production/manual` | Submit daily kWh manually |
 | `POST` | `/api/production/iot` | IoT inverter push endpoint |
 | `POST` | `/api/audit/run` | Trigger a manual audit for a date |
 | `GET` | `/api/audit/` | Paginated audit log with filters |
 | `GET` | `/api/alerts/` | Alert history by bond, type, severity |
-| `GET` | `/api/alerts/summary` | Unread count + severity breakdown |
-| `GET` | `/api/blockchain/status` | Live Polygon node + contract status |
-| `GET` | `/api/health/` | Full system health (all services) |
+| `GET` | `/api/alerts/summary` | Unread count and severity breakdown |
+| `GET` | `/api/blockchain/status` | Live Polygon node, contract address, and connection status |
+| `GET` | `/api/blockchain/tx/{hash}` | Fetch transaction details from Polygon |
+| `GET` | `/api/health/` | Full system health across all services |
 
-Full interactive docs: `http://localhost:8000/docs`
+> **Note on manual audits:** Always target a date at least 6 days in the past. NASA data for recent dates is not yet composited — auditing them produces `IGNORED` verdicts with no log written.
 
 ---
 
@@ -313,15 +360,15 @@ Full interactive docs: `http://localhost:8000/docs`
 
 ---
 
-## What Frontend Numbers Actually Represent
+## What Frontend Numbers Represent
 
 | UI Element | Backend Source |
 |---|---|
-| Today's PR % | `audit_logs.calculated_pr` — latest non-IGNORED record for the bond |
+| Latest PR % | `audit_logs.calculated_pr` — most recent non-IGNORED record |
 | Penalty / Active badge | `bonds.status` — set by penalty engine after 3-day streak |
 | Current Rate % | `bonds.current_rate` — updated atomically on blockchain write |
-| 30-day PR chart | `timeseries` endpoint — `audit_logs` ordered by date |
-| Streak bar | `audit_logs.consecutive_penalty / consecutive_compliant` |
+| PR / Energy / Interest charts | `timeseries` endpoint — `audit_logs` ordered by date |
+| Streak bars | `audit_logs.consecutive_penalty / consecutive_compliant` |
 | Financial Impact calculator | `tvl × (current_rate − base_rate) ÷ 100 ÷ 365` |
 | Alert Center entries | `alerts` table — one row per email / SMS / blockchain event |
 | TX Hash in Glass Box | `audit_logs.blockchain_tx_hash` — Polygon transaction ID |
@@ -333,14 +380,26 @@ Full interactive docs: `http://localhost:8000/docs`
 
 ## Configuration
 
-Copy `backend/.env.example` to `backend/.env` and fill in your credentials. All PR thresholds are configurable without touching code:
+Copy `backend/.env.example` to `backend/.env`. All PR thresholds are configurable without touching code:
 
 ```bash
+# Blockchain
+POLYGON_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/YOUR_KEY
+WALLET_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
+CONTRACT_ADDRESS=0xYOUR_DEPLOYED_CONTRACT
+
+# PR Engine
 PR_THRESHOLD=0.75              # Minimum acceptable Performance Ratio
 CONSECUTIVE_PENALTY_DAYS=3    # Under-threshold days before rate hike
 CONSECUTIVE_RECOVERY_DAYS=7   # Above-threshold days to restore base rate
 PERFORMANCE_FACTOR=0.80        # System loss factor (industry range 0.75–0.85)
 PENALTY_RATE_MULTIPLIER=1.5   # Rate hike multiplier (1.5 = +50% above base)
+
+# Notifications
+SENDGRID_API_KEY=SG.xxxx
+TWILIO_ACCOUNT_SID=ACxxxx
+TWILIO_AUTH_TOKEN=xxxx
+TWILIO_FROM_NUMBER=+1xxxxxxxxxx
 ```
 
 ---
@@ -373,10 +432,24 @@ greenbond-os/
 │   └── requirements.txt
 ├── frontend/
 │   └── src/
-│       ├── views/                # Dashboard, BondDetail, DataEntry, Alerts, etc.
-│       ├── components/           # StatusBadge, GlassBox, StreakTracker, Topbar
-│       ├── hooks/                # useBonds, useTimeseries
-│       └── api.js                # Axios API client
+│       ├── views/
+│       │   ├── Dashboard.jsx         # Portfolio KPIs and bond table
+│       │   ├── BondDetail.jsx        # Charts, Glass Box, audit log, blockchain tab
+│       │   ├── DataEntry.jsx         # Manual entry + IoT push form
+│       │   ├── BondRegistration.jsx  # Bond registration form
+│       │   ├── BlockchainExplorer.jsx# Network status, TX lookup, audit trigger
+│       │   ├── Alerts.jsx            # Alert history
+│       │   └── SystemHealth.jsx      # Live service status
+│       ├── components/
+│       │   ├── BlockchainModal.jsx   # Raw payload viewer with contract status
+│       │   ├── GlassBox.jsx          # Audit transparency breakdown
+│       │   ├── StreakTracker.jsx      # Penalty / recovery streak bars
+│       │   ├── StatusBadge.jsx       # Bond status pill
+│       │   ├── Sidebar.jsx           # Navigation + system indicators
+│       │   └── Topbar.jsx            # Live chain status + alert bell
+│       ├── hooks/
+│       │   └── useBonds.js           # useBonds, useBond query hooks
+│       └── api.js                    # Axios API client
 ├── .gitignore
 ├── LICENSE
 └── README.md
