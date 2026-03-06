@@ -6,6 +6,8 @@ import BondDetail from "./views/BondDetail";
 import Alerts from "./views/Alerts";
 import DataEntry from "./views/DataEntry";
 import SystemHealth from "./views/SystemHealth";
+import BondRegistration from "./views/BondRegistration";
+import BlockchainExplorer from "./views/BlockchainExplorer";
 
 const GLOBAL_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@400;500;600;700;800&display=swap');
@@ -37,37 +39,23 @@ const VIEW_TITLES = {
   entry: "Data Entry",
   health: "System Health",
   detail: "Bond Detail",
+  register: "Bond Registration",
+  blockchain: "Blockchain Explorer",
 };
 
 export default function App() {
   const [view, setView] = useState("dashboard");
   const [selectedBond, setSelectedBond] = useState(null);
 
-  const handleSelectBond = (bond) => {
-    setSelectedBond(bond);
-    setView("detail");
-  };
-
-  const handleBack = () => {
-    setView("dashboard");
-    setSelectedBond(null);
-  };
-
-  const handleNav = (id) => {
-    setView(id);
-    setSelectedBond(null);
-  };
+  const handleSelectBond = (bond) => { setSelectedBond(bond); setView("detail"); };
+  const handleBack = () => { setView("dashboard"); setSelectedBond(null); };
+  const handleNav = (id) => { setView(id); setSelectedBond(null); };
 
   return (
     <>
       <style>{GLOBAL_CSS}</style>
       <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-        <Sidebar
-          view={view}
-          onNav={handleNav}
-          onBond={handleSelectBond}
-          selectedBond={selectedBond}
-        />
+        <Sidebar view={view} onNav={handleNav} onBond={handleSelectBond} selectedBond={selectedBond} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <Topbar
             title={view === "detail" && selectedBond ? selectedBond.name : VIEW_TITLES[view] || "Dashboard"}
@@ -81,6 +69,8 @@ export default function App() {
             {view === "alerts" && <Alerts />}
             {view === "entry" && <DataEntry />}
             {view === "health" && <SystemHealth />}
+            {view === "register" && <BondRegistration />}
+            {view === "blockchain" && <BlockchainExplorer />}
           </main>
         </div>
       </div>

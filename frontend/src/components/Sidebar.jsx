@@ -4,10 +4,12 @@ import { useBonds } from "../hooks/useBonds";
 import { fetchSystemHealth, fetchAlertSummary } from "../api";
 
 const NAV = [
-  { id: "dashboard", icon: "📊", label: "Dashboard" },
-  { id: "alerts",    icon: "🔔", label: "Alert Center" },
-  { id: "entry",     icon: "📥", label: "Data Entry" },
-  { id: "health",    icon: "🖥️", label: "System Health" },
+  { id: "dashboard",  icon: "📊", label: "Dashboard" },
+  { id: "register",   icon: "🌿", label: "Bond Registration" },
+  { id: "entry",      icon: "📥", label: "Data Entry" },
+  { id: "blockchain", icon: "🔗", label: "Blockchain" },
+  { id: "health",     icon: "🖥️", label: "System Health" },
+  { id: "alerts",     icon: "🔔", label: "Alert Center" },
 ];
 
 // Keys to show in the sidebar footer. These match the service keys

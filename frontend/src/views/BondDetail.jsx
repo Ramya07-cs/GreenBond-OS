@@ -318,7 +318,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
               <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text3)", fontSize: 12 }}>
                 <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
                 No audit records yet. The first audit runs at 06:00 IST.<br />
-                <span style={{ fontSize: 10 }}>You can trigger a manual audit via <code style={{ fontFamily: "var(--mono)", background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>POST /api/audit/run</code></span>
+                <span style={{ fontSize: 10, color: "var(--text3)" }}>Use <strong style={{ color: "var(--blue)" }}>Blockchain → Trigger Audit</strong> to run one manually.</span>
               </div>
             ) : (
               <div>

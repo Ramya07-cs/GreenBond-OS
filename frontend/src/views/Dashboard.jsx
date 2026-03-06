@@ -1,7 +1,7 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { useBonds } from "../hooks/useBonds";
-import { fetchAlertSummary, fetchTimeseries, fetchDashboardSummary } from "../api";
+import { fetchAlertSummary, fetchDashboardSummary } from "../api";
 import StatusBadge from "../components/StatusBadge";
 
 function KPI({ label, value, sub, color, barColor }) {
@@ -108,9 +108,16 @@ export default function Dashboard({ onSelectBond }) {
                   {b.current_rate}% {b.current_rate > b.base_rate && "↑"}
                 </td>
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12, color: b.today_pr ? (b.today_pr >= 0.75 ? "var(--green)" : "var(--red)") : "var(--slate)" }}>
-                  {b.today_pr
-                    ? `${(b.today_pr * 100).toFixed(0)}%`
-                    : <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", letterSpacing: ".06em", fontWeight: 700 }}>⏳ PENDING</span>}
+                  {b.today_pr ? (
+                    <div>
+                      <div>{(b.today_pr * 100).toFixed(0)}%</div>
+                      {b.today_pr_date && b.today_pr_date !== new Date().toISOString().split("T")[0] && (
+                        <div style={{ fontSize: 8, color: "var(--text3)", marginTop: 1 }}>
+                          {new Date(b.today_pr_date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        </div>
+                      )}
+                    </div>
+                  ) : <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", letterSpacing: ".06em", fontWeight: 700 }}>⏳ PENDING</span>}
                 </td>
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12 }}>
                   {b.tvl ? `₹${(b.tvl / 1e5).toFixed(0)}L` : "—"}
@@ -125,31 +132,6 @@ export default function Dashboard({ onSelectBond }) {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function PRSparkline({ bondId }) {
-  const { data } = useQuery({ queryKey: ["timeseries", bondId, 30], queryFn: () => fetchTimeseries(bondId, 30), enabled: !!bondId });
-  const chartData = data?.perf_series?.slice(-30) || [];
-  return (
-    <div style={{ height: 140 }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData}>
-          <defs>
-            <linearGradient id="spg" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="var(--green)" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="var(--green)" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" />
-          <XAxis dataKey="day" tick={false} axisLine={false} />
-          <YAxis domain={[0.4, 1.05]} tick={{ fill: "#455A64", fontSize: 9 }} axisLine={false} tickFormatter={v => `${(v * 100).toFixed(0)}%`} width={34} />
-          <Tooltip formatter={(v) => [`${(v * 100).toFixed(1)}%`, "PR"]} />
-          <ReferenceLine y={0.75} stroke="var(--red)" strokeDasharray="3 3" strokeOpacity={0.5} />
-          <Area type="monotone" dataKey="pr" stroke="var(--green)" fill="url(#spg)" strokeWidth={1.5} dot={false} />
-        </AreaChart>
-      </ResponsiveContainer>
     </div>
   );
 }

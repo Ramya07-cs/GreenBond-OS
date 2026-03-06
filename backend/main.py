@@ -1,5 +1,4 @@
 import logging
-import logging.config
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -99,8 +98,8 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None,
+    redoc_url=None,
 )
 
 # CORS
@@ -126,6 +125,5 @@ def root():
     return {
         "name": settings.APP_NAME,
         "version": "1.0.0",
-        "docs": "/docs",
         "status": "running",
     }
