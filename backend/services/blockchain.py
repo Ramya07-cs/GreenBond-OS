@@ -197,14 +197,30 @@ class BlockchainService:
     # ── Read functions ────────────────────────────────────────────────────────
 
     def get_transaction(self, tx_hash: str) -> Optional[dict]:
-        if not self._ensure_connected():
-            return None
+        """
+        Read-only TX lookup — uses its own RPC connection so it works even
+        when the wallet/contract credentials are not configured.
+        """
         try:
-            tx = self._w3.eth.get_transaction(tx_hash)
-            receipt = self._w3.eth.get_transaction_receipt(tx_hash)
-            block = self._w3.eth.get_block(receipt["blockNumber"])
+            from web3 import Web3
+
+            # Standalone read-only connection — no wallet or contract needed
+            w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
+            if not w3.is_connected():
+                logger.error("[Blockchain] RPC not reachable for TX lookup")
+                return None
+
+            # Normalize hash: accept "0x..." string or raw bytes
+            if isinstance(tx_hash, str):
+                tx_hash_bytes = Web3.to_bytes(hexstr=tx_hash)
+            else:
+                tx_hash_bytes = tx_hash
+
+            tx = w3.eth.get_transaction(tx_hash_bytes)
+            receipt = w3.eth.get_transaction_receipt(tx_hash_bytes)
+            block = w3.eth.get_block(receipt["blockNumber"])
             return {
-                "hash": tx_hash,
+                "hash": tx_hash if isinstance(tx_hash, str) else tx_hash.hex(),
                 "block_number": receipt["blockNumber"],
                 "gas_used": receipt["gasUsed"],
                 "status": "CONFIRMED" if receipt["status"] == 1 else "FAILED",

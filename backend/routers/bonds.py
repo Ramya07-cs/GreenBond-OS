@@ -75,6 +75,9 @@ class BondOut(BaseModel):
     today_pr_date: Optional[date] = None   # date of the latest real audit — lets frontend detect stale PR
     consecutive_penalty: int = 0
     consecutive_compliant: int = 0
+    registered_on_chain: bool = False
+    registration_tx_hash: Optional[str] = None
+    registration_block: Optional[int] = None
 
     class Config:
         from_attributes = True

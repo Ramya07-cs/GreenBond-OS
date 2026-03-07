@@ -32,6 +32,7 @@ class AuditLog(Base):
     # Blockchain proof
     blockchain_tx_hash = Column(String(100), nullable=True)
     block_number = Column(Integer, nullable=True)
+    gas_used = Column(Integer, nullable=True)
 
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

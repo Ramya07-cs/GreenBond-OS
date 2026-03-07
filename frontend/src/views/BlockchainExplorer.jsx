@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchBlockchainStatus, fetchTransaction, triggerAudit } from "../api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { fetchBlockchainStatus, triggerAudit, registerBondOnChain, setRegistrationTx } from "../api";
 import { useBonds } from "../hooks/useBonds";
 
 const inputStyle = {
@@ -21,21 +21,293 @@ function StatBox({ label, value, sub, color = "var(--text)" }) {
 
 function JsonBlock({ data }) {
   if (!data) return null;
-  const jsonStr = JSON.stringify(data, null, 2);
   return (
     <pre style={{
       background: "var(--void)", border: "1px solid var(--border)", borderRadius: "var(--r2)",
       padding: "12px 14px", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text2)",
       lineHeight: 1.8, overflowX: "auto", whiteSpace: "pre-wrap", maxHeight: 320, overflowY: "auto",
     }}>
-      {jsonStr}
+      {JSON.stringify(data, null, 2)}
     </pre>
   );
 }
 
+// ── Bond On-Chain Registration Panel ─────────────────────────────────────────
+function RegisterPanel({ bonds }) {
+  const queryClient = useQueryClient();
+  // session = ephemeral loading/error state for this tab visit
+  // Persistent "registered" truth comes from bond.registered_on_chain (DB-backed via API)
+  const [session, setSession] = useState({});
+
+  const setS = (bondId, patch) =>
+    setSession(prev => ({ ...prev, [bondId]: { ...(prev[bondId] || {}), ...patch } }));
+
+  async function handleRegister(bond) {
+    setS(bond.id, { loading: true, error: null });
+    try {
+      const data = await registerBondOnChain(bond.id);
+      setS(bond.id, { loading: false, freshData: data });
+      // Refetch bonds list — bond.registered_on_chain will now be true from DB
+      queryClient.invalidateQueries({ queryKey: ["bonds"] });
+    } catch (err) {
+      const msg =
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Registration failed — check RPC / wallet config.";
+      setS(bond.id, { loading: false, error: msg });
+    }
+  }
+
+  // Backfill state: { [bondId]: { txInput, blockInput, loading, error, done } }
+  const [backfill, setBackfill] = useState({});
+  const setB = (bondId, patch) =>
+    setBackfill(prev => ({ ...prev, [bondId]: { ...(prev[bondId] || {}), ...patch } }));
+
+  async function handleBackfill(bond) {
+    const b = backfill[bond.id] || {};
+    if (!b.txInput?.trim()) return;
+    setB(bond.id, { loading: true, error: null });
+    try {
+      await setRegistrationTx(bond.id, b.txInput.trim(), b.blockInput ? parseInt(b.blockInput) : null);
+      setB(bond.id, { loading: false, done: true });
+      queryClient.invalidateQueries({ queryKey: ["bonds"] });
+    } catch (err) {
+      setB(bond.id, { loading: false, error: err?.response?.data?.detail || "Failed to save TX hash." });
+    }
+  }
+
+  const activeBonds = bonds.filter(b => b.status !== "MATURED");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Explainer banner */}
+      <div style={{
+        padding: "14px 16px",
+        background: "rgba(255,179,0,.07)",
+        border: "1px solid rgba(255,179,0,.25)",
+        borderRadius: "var(--r2)",
+        fontSize: 11,
+        color: "var(--text2)",
+        lineHeight: 1.8,
+      }}>
+        <div style={{ fontWeight: 700, color: "var(--amber)", marginBottom: 6, fontSize: 12 }}>
+          🔗 Why register bonds on-chain?
+        </div>
+        Bonds created before the blockchain integration was live are not yet known to the smart contract.
+        Without registration, any penalty trigger will revert with{" "}
+        <span style={{ color: "var(--red)", fontFamily: "var(--mono)", fontSize: 10 }}>"bond not registered"</span>
+        {" "}— the rate change is still saved in PostgreSQL but <strong>without a TX hash</strong>.
+        Register each bond once to wire everything up end-to-end.
+      </div>
+
+
+      {/* Per-bond rows */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {activeBonds.length === 0 && (
+          <div style={{ padding: 24, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>
+            No active bonds found.
+          </div>
+        )}
+        {activeBonds.map(bond => {
+          const s = session[bond.id] || {};
+          // Registered = DB says so (persists across reloads) OR just succeeded in this session
+          const isRegistered = bond.registered_on_chain || !!s.freshData;
+          const isLoading = !!s.loading;
+          const hasError = !!s.error;
+          const borderColor = isRegistered
+            ? "rgba(0,230,118,.25)"
+            : hasError
+            ? "rgba(255,61,61,.25)"
+            : "var(--border)";
+
+          return (
+            <div key={bond.id} style={{
+              background: "var(--card)",
+              border: `1px solid ${borderColor}`,
+              borderRadius: "var(--r)",
+              padding: 16,
+              transition: "border-color .3s",
+            }}>
+              {/* Bond header row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{bond.name}</div>
+                  <div style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)", marginTop: 3 }}>
+                    {bond.id} &middot; Base rate {bond.base_rate}% &middot; {(bond.capacity_kw / 1000).toFixed(1)} MW
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {isRegistered && (
+                    <div style={{
+                      fontSize: 9, padding: "3px 9px", borderRadius: 100,
+                      background: "var(--green-dim)", border: "1px solid rgba(0,230,118,.25)",
+                      color: "var(--green)", fontFamily: "var(--mono)", fontWeight: 700, letterSpacing: ".06em",
+                    }}>
+                      ✓ REGISTERED
+                    </div>
+                  )}
+                  {hasError && !isRegistered && (
+                    <div style={{
+                      fontSize: 9, padding: "3px 9px", borderRadius: 100,
+                      background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.25)",
+                      color: "var(--red)", fontFamily: "var(--mono)", fontWeight: 700, letterSpacing: ".06em",
+                    }}>
+                      ✗ FAILED
+                    </div>
+                  )}
+
+                  {!isRegistered && (
+                    <button
+                      onClick={() => handleRegister(bond)}
+                      disabled={isLoading}
+                      style={{
+                        padding: "8px 18px",
+                        background: hasError ? "transparent" : "var(--green)",
+                        border: hasError ? "1px solid rgba(255,61,61,.4)" : "none",
+                        color: hasError ? "var(--red)" : "#000",
+                        fontWeight: 700,
+                        fontSize: 11,
+                        borderRadius: "var(--r2)",
+                        cursor: isLoading ? "not-allowed" : "pointer",
+                        fontFamily: "var(--mono)",
+                        opacity: isLoading ? 0.6 : 1,
+                        transition: "opacity .2s",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {isLoading
+                        ? "⏳ Registering..."
+                        : hasError
+                        ? "↺ Retry"
+                        : "🔗 Register On-Chain"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Registered + has TX hash → show proof */}
+              {isRegistered && (s.freshData?.tx_hash || bond.registration_tx_hash) && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 10 }}>
+                    {[
+                      ["TX Hash", (s.freshData?.tx_hash || bond.registration_tx_hash)?.slice(0, 18) + "…"],
+                      ["Block", (s.freshData?.block_number || bond.registration_block)?.toLocaleString() ?? "—"],
+                      ["Status", s.freshData?.status ?? "CONFIRMED"],
+                    ].map(([k, v]) => (
+                      <div key={k} style={{ padding: "8px 10px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)" }}>
+                        <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{k}</div>
+                        <div style={{ fontSize: 10, color: "var(--green)", fontFamily: "var(--mono)", fontWeight: 600 }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <a
+                    href={`https://amoy.polygonscan.com/tx/${s.freshData?.tx_hash || bond.registration_tx_hash}`}
+                    target="_blank" rel="noreferrer"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--blue)", fontFamily: "var(--mono)", textDecoration: "none" }}
+                  >
+                    ↗ View on Polygonscan
+                  </a>
+                </div>
+              )}
+
+              {/* Registered via old curl but no TX hash stored yet → show backfill form */}
+              {isRegistered && !s.freshData?.tx_hash && !bond.registration_tx_hash && (() => {
+                const bf = backfill[bond.id] || {};
+                return bf.done ? (
+                  <div style={{ marginTop: 12, fontSize: 10, color: "var(--green)", fontFamily: "var(--mono)" }}>
+                    ✓ TX hash saved — refresh to see it
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 14, padding: "12px 14px", background: "rgba(255,179,0,.06)", border: "1px solid rgba(255,179,0,.2)", borderRadius: "var(--r2)" }}>
+                    <div style={{ fontSize: 9, color: "var(--amber)", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 8 }}>
+                      ⚠ Registered before TX logging was live — paste your TX hash from Polygonscan
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                      <input
+                        placeholder="TX hash  0x649db320..."
+                        value={bf.txInput || ""}
+                        onChange={e => setB(bond.id, { txInput: e.target.value })}
+                        style={{ flex: 2, background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "7px 10px", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 10, outline: "none" }}
+                      />
+                      <input
+                        placeholder="Block #  e.g. 34870357"
+                        value={bf.blockInput || ""}
+                        onChange={e => setB(bond.id, { blockInput: e.target.value })}
+                        style={{ flex: 1, background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "7px 10px", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 10, outline: "none" }}
+                      />
+                      <button
+                        onClick={() => handleBackfill(bond)}
+                        disabled={!bf.txInput?.trim() || bf.loading}
+                        style={{ padding: "7px 14px", background: "var(--amber)", border: "none", color: "#000", fontWeight: 700, fontSize: 10, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)", opacity: !bf.txInput?.trim() ? 0.4 : 1, whiteSpace: "nowrap" }}
+                      >
+                        {bf.loading ? "⏳ Saving..." : "💾 Save"}
+                      </button>
+                    </div>
+                    {bf.error && <div style={{ fontSize: 9, color: "var(--red)", fontFamily: "var(--mono)" }}>{bf.error}</div>}
+                    <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 4 }}>
+                      Find your TX hashes at{" "}
+                      <a href="https://amoy.polygonscan.com" target="_blank" rel="noreferrer" style={{ color: "var(--blue)" }}>amoy.polygonscan.com</a>
+                      {" "}→ search your wallet address → Transactions
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Error message */}
+              {hasError && !isRegistered && (
+                <div style={{ marginTop: 10, fontSize: 10, color: "var(--red)", fontFamily: "var(--mono)", lineHeight: 1.6 }}>
+                  {s.error}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Register all button */}
+      {activeBonds.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button
+            onClick={() => {
+              activeBonds.forEach(b => {
+                const s = session[b.id] || {};
+                const alreadyDone = b.registered_on_chain || !!s.freshData;
+                if (!alreadyDone && !s.loading) handleRegister(b);
+              });
+            }}
+            disabled={activeBonds.every(b => {
+              const s = session[b.id] || {};
+              return b.registered_on_chain || !!s.freshData || !!s.loading;
+            })}
+            style={{
+              padding: "9px 22px",
+              background: "var(--blue)",
+              border: "none",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 11,
+              borderRadius: "var(--r2)",
+              cursor: "pointer",
+              fontFamily: "var(--mono)",
+              opacity: activeBonds.every(b => {
+                const s = session[b.id] || {};
+                return b.registered_on_chain || !!s.freshData || !!s.loading;
+              }) ? 0.4 : 1,
+            }}
+          >
+            🔗 Register All Unregistered Bonds
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function BlockchainExplorer() {
   const [tab, setTab] = useState("status");
-  const [txHash, setTxHash] = useState("");
+  const queryClient = useQueryClient();
   const [auditDate, setAuditDate] = useState(new Date().toISOString().split("T")[0]);
   const [auditResult, setAuditResult] = useState(null);
   const { data: bonds = [] } = useBonds();
@@ -46,19 +318,21 @@ export default function BlockchainExplorer() {
     refetchInterval: 15000,
   });
 
-  const txQuery = useQuery({
-    queryKey: ["tx", txHash],
-    queryFn: () => fetchTransaction(txHash),
-    enabled: false,
-  });
-
   const auditMutation = useMutation({
     mutationFn: ({ date }) => triggerAudit(date),
-    onSuccess: (data) => setAuditResult({ ok: true, data }),
+    onSuccess: (data) => {
+      setAuditResult({ ok: true, data });
+      // Refetch bonds after a short delay so PR Today + snapshot update when audit completes
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["bonds"] }), 3000);
+    },
     onError: (err) => setAuditResult({ ok: false, message: err?.response?.data?.detail || "Audit trigger failed." }),
   });
 
-  const tabs = [["status", "🔗 Network Status"], ["tx", "🔍 TX Lookup"], ["audit", "⚡ Trigger Audit"]];
+  const tabs = [
+    ["status",   "🔗 Network Status"],
+    ["register", "📋 Register Bonds"],
+    ["audit",    "⚡ Trigger Audit"],
+  ];
   const today = new Date().toISOString().split("T")[0];
 
   return (
@@ -75,7 +349,7 @@ export default function BlockchainExplorer() {
         ))}
       </div>
 
-      {/* ── Network Status ─────────────────────────────────────────────────── */}
+      {/* ── Network Status ───────────────────────────────────────────── */}
       {tab === "status" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -89,7 +363,6 @@ export default function BlockchainExplorer() {
 
           {status ? (
             <>
-              {/* Connection status banner */}
               <div style={{ padding: "12px 16px", background: status.connected ? "var(--green-dim)" : "var(--red-dim)", border: `1px solid ${status.connected ? "rgba(0,230,118,.2)" : "rgba(255,61,61,.2)"}`, borderRadius: "var(--r2)", display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 10, height: 10, borderRadius: "50%", background: status.connected ? "var(--green)" : "var(--red)", animation: status.connected ? "pulse 2s infinite" : "none" }} />
                 <div>
@@ -109,7 +382,6 @@ export default function BlockchainExplorer() {
                 <StatBox label="Auto-refresh" value="15s" color="var(--text3)" sub="Live polling active" />
               </div>
 
-              {/* Raw JSON */}
               <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 10 }}>📋 Raw Response</div>
                 <JsonBlock data={status} />
@@ -128,95 +400,10 @@ export default function BlockchainExplorer() {
         </div>
       )}
 
-      {/* ── TX Lookup ─────────────────────────────────────────────────────── */}
-      {tab === "tx" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🔍 Transaction Lookup</div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                type="text"
-                placeholder="Enter tx hash: 0x..."
-                value={txHash}
-                onChange={e => setTxHash(e.target.value)}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button
-                onClick={() => txQuery.refetch()}
-                disabled={!txHash.trim() || txQuery.isFetching}
-                style={{ padding: "9px 18px", background: "var(--blue)", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)", opacity: !txHash.trim() ? .4 : 1, whiteSpace: "nowrap" }}
-              >
-                {txQuery.isFetching ? "⏳ Looking up..." : "🔍 Fetch TX"}
-              </button>
-            </div>
-            {txHash && (
-              <div style={{ marginTop: 10 }}>
-                <a href={`https://amoy.polygonscan.com/tx/${txHash}`} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 10, color: "var(--blue)", fontFamily: "var(--mono)", textDecoration: "none" }}>
-                  ↗ View on Polygonscan: {txHash.slice(0, 20)}...
-                </a>
-              </div>
-            )}
-          </div>
+      {/* ── Register Bonds ───────────────────────────────────────────── */}
+      {tab === "register" && <RegisterPanel bonds={bonds} />}
 
-          {txQuery.isError && (
-            <div style={{ padding: "10px 14px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.2)", borderRadius: "var(--r2)", fontSize: 11, color: "var(--red)" }}>
-              ❌ Transaction not found or node unavailable.
-            </div>
-          )}
-
-          {txQuery.data && (
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--green)", marginBottom: 12 }}>✅ Transaction Found</div>
-
-              {/* Key fields */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-                {[
-                  ["Block Number", txQuery.data.blockNumber],
-                  ["Gas Used", txQuery.data.gas],
-                  ["From", txQuery.data.from ? txQuery.data.from.slice(0, 16) + "..." : "—"],
-                  ["To", txQuery.data.to ? txQuery.data.to.slice(0, 16) + "..." : "—"],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ padding: "8px 12px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)" }}>
-                    <div style={{ fontSize: 9, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>{k}</div>
-                    <div style={{ fontSize: 11, color: "var(--text)", fontFamily: "var(--mono)", marginTop: 2 }}>{v ?? "—"}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text2)", marginBottom: 8 }}>Full Response</div>
-              <JsonBlock data={txQuery.data} />
-
-              <a href={`https://amoy.polygonscan.com/tx/${txHash}`} target="_blank" rel="noreferrer"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12, padding: "9px 16px", background: "var(--card2)", border: "1px solid var(--border2)", color: "var(--blue)", fontSize: 11, borderRadius: "var(--r2)", textDecoration: "none", fontFamily: "var(--mono)", fontWeight: 600 }}>
-                ↗ Open on Polygonscan
-              </a>
-            </div>
-          )}
-
-          {/* Recent bond transactions */}
-          {bonds.length > 0 && (
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>📑 Bond TX References</div>
-              <div style={{ fontSize: 10, color: "var(--text3)", marginBottom: 10 }}>Click a hash to look it up above.</div>
-              {bonds.filter(b => b.last_tx_hash).length === 0 ? (
-                <div style={{ fontSize: 11, color: "var(--text3)", padding: "12px 0" }}>No on-chain transactions recorded yet. Blockchain writes activate once CONTRACT_ADDRESS is set.</div>
-              ) : bonds.filter(b => b.last_tx_hash).map(b => (
-                <div key={b.id} onClick={() => setTxHash(b.last_tx_hash)}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", marginBottom: 6, cursor: "pointer" }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: "var(--text)" }}>{b.name}</div>
-                    <div style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)", marginTop: 2 }}>{b.last_tx_hash?.slice(0, 30)}...</div>
-                  </div>
-                  <span style={{ fontSize: 9, color: "var(--blue)", fontFamily: "var(--mono)" }}>USE ↑</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Trigger Audit ─────────────────────────────────────────────────── */}
+      {/* ── Trigger Audit ────────────────────────────────────────────── */}
       {tab === "audit" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ padding: "10px 14px", background: "var(--amber-dim)", border: "1px solid rgba(255,179,0,.25)", borderRadius: "var(--r2)", fontSize: 11, color: "var(--text2)", lineHeight: 1.7 }}>
@@ -225,7 +412,6 @@ export default function BlockchainExplorer() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            {/* Audit form */}
             <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16 }}>⚡ Trigger Audit</div>
 
@@ -254,7 +440,13 @@ export default function BlockchainExplorer() {
 
                   <div style={{ padding: "10px 12px", background: "var(--void)", border: "1px solid var(--border)", borderRadius: "var(--r2)" }}>
                     <div style={{ fontSize: 9, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 6 }}>What this does</div>
-                    {["Fetches NASA POWER GHI for each bond's lat/lng", "Computes Performance Ratio = actual_kwh / expected_kwh", "Applies COMPLIANT / PENALTY verdict", "Triggers blockchain event if threshold crossed", "Updates current_rate on the bond"].map((s, i) => (
+                    {[
+                      "Fetches NASA POWER GHI for each bond's lat/lng",
+                      "Computes Performance Ratio = actual_kwh / expected_kwh",
+                      "Applies COMPLIANT / PENALTY verdict",
+                      "Triggers blockchain event if threshold crossed",
+                      "Updates current_rate on the bond",
+                    ].map((s, i) => (
                       <div key={i} style={{ fontSize: 10, color: "var(--text2)", marginBottom: 4, display: "flex", gap: 8 }}>
                         <span style={{ color: "var(--green)" }}>→</span> {s}
                       </div>
@@ -272,7 +464,6 @@ export default function BlockchainExplorer() {
               )}
             </div>
 
-            {/* Bonds audit status */}
             <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>📊 Bond Audit Snapshot</div>
               {bonds.length === 0 ? (

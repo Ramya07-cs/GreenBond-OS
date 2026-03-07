@@ -48,11 +48,14 @@ def get_rate_history(bond_id: str):
 def register_bond_on_chain(bond_id: str):
     """
     Manually register a bond on the smart contract.
-    Use this if a bond was created when the blockchain was unavailable
-    and rate change TXs are now failing with 'bond not registered'.
+    Persists the registration TX hash to the bond record so the
+    frontend can show a permanent ✓ REGISTERED state after page refresh.
+    Safe to call again if already registered — the smart contract is
+    idempotent and the DB record will be updated with the latest TX.
     """
     from database import SessionLocal
     from models import Bond
+    from redis_client import redis_client
 
     db = SessionLocal()
     try:
@@ -64,8 +67,53 @@ def register_bond_on_chain(bond_id: str):
         if not tx:
             raise HTTPException(
                 status_code=503,
-                detail="Blockchain unavailable — registration failed. Check your RPC URL and wallet credentials."
+                detail="Blockchain unavailable — registration failed. Check your RPC URL and wallet credentials.",
             )
-        return {"bond_id": bond_id, "tx_hash": tx["tx_hash"], "block_number": tx["block_number"], "status": tx["status"]}
+
+        # ── Persist registration proof to DB ───────────────────────────────────
+        bond.registered_on_chain = True
+        bond.registration_tx_hash = tx["tx_hash"]
+        bond.registration_block = tx["block_number"]
+        db.commit()
+
+        # Invalidate bond caches so the registered state propagates immediately
+        redis_client.delete(f"bond:detail:{bond_id}", "bonds:list", "dashboard:summary")
+
+        return {
+            "bond_id": bond_id,
+            "tx_hash": tx["tx_hash"],
+            "block_number": tx["block_number"],
+            "status": tx["status"],
+            "registered_on_chain": True,
+        }
+    finally:
+        db.close()
+
+
+@router.patch("/register/{bond_id}/tx")
+def set_registration_tx(bond_id: str, tx_hash: str, block_number: int = None):
+    """
+    Backfill the registration TX hash for a bond that was registered via curl
+    before the DB-persistence fix was deployed.
+    Usage: PATCH /api/blockchain/register/GB-2025-001/tx?tx_hash=0xabc...&block_number=34870357
+    """
+    from database import SessionLocal
+    from models import Bond
+    from redis_client import redis_client
+
+    db = SessionLocal()
+    try:
+        bond = db.query(Bond).filter(Bond.id == bond_id).first()
+        if not bond:
+            raise HTTPException(status_code=404, detail=f"Bond {bond_id} not found")
+
+        bond.registered_on_chain = True
+        bond.registration_tx_hash = tx_hash
+        if block_number:
+            bond.registration_block = block_number
+        db.commit()
+
+        redis_client.delete(f"bond:detail:{bond_id}", "bonds:list", "dashboard:summary")
+        return {"bond_id": bond_id, "tx_hash": tx_hash, "block_number": block_number, "status": "updated"}
     finally:
         db.close()

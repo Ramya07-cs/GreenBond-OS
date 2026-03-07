@@ -27,7 +27,7 @@ GreenBond OS automates the full compliance lifecycle of a green bond. Every day 
 2. Compares it against inverter production logs submitted via the UI or IoT push
 3. Calculates a **Performance Ratio (PR)** using industry-standard formulas
 4. Detects underperformance streaks and — upon crossing the 3-day threshold — **executes a rate change on the Polygon blockchain**
-5. Dispatches **SMS and email alerts** to the issuer
+5. Dispatches **SMS and email alerts** to the bond issuer
 6. Surfaces everything through a live React dashboard with full Glass Box audit transparency
 
 ---
@@ -176,6 +176,20 @@ cp .env.example .env              # Fill in your credentials
 cd ../frontend && npm install
 ```
 
+### 4. Database Migration
+
+If you are upgrading from a previous version, run the one-time migration before starting the server. This adds blockchain registration columns to the `bonds` table and `gas_used` to `audit_logs`. Safe to run on a populated database — uses `IF NOT EXISTS`.
+
+```bash
+cd backend
+source venv/bin/activate
+python migrate_add_registration.py
+```
+
+> **First-time setup:** Skip this step — the lifespan hook creates all tables automatically on first boot.
+
+### 5. Run All Services
+
 Run all four processes in separate terminals:
 
 ```bash
@@ -202,6 +216,24 @@ cd frontend && npm run dev
 
 ---
 
+## Blockchain Bond Registration
+
+Every bond must be registered on the Polygon smart contract **once** before penalty events can be written on-chain. Without this step, penalty transactions will revert with `"bond not registered"` — the rate change still saves to PostgreSQL but without a TX hash.
+
+### Register via the UI
+
+Go to **Blockchain Explorer → Register Bonds**. Each bond card shows a green **✓ REGISTERED** badge if already registered. For unregistered bonds, click **Register On-Chain** — the TX hash and block number are stored in the database and persist across page reloads.
+
+### Registration state is DB-backed
+
+`bonds.registered_on_chain`, `bonds.registration_tx_hash`, and `bonds.registration_block` are stored in PostgreSQL after every successful registration call. The UI reads these fields from the API — no ephemeral frontend state.
+
+### Backfilling pre-existing registrations
+
+If bonds were registered via the old curl workflow before registration persistence was added, use the backfill form that appears on each registered-but-no-hash card in the Register Bonds tab. Paste the TX hash and block number from [amoy.polygonscan.com](https://amoy.polygonscan.com) and click **Save**.
+
+---
+
 ## Frontend Views
 
 | View | Description |
@@ -209,12 +241,12 @@ cd frontend && npm run dev
 | **Dashboard** | Portfolio KPIs, compliance rate, bond table with live PR and rates |
 | **Bond Detail** | Per-bond analytics, PR/energy/interest charts, streak tracker, audit log |
 | **Glass Box** | Full audit transparency — NASA GHI, PR formula, verdict reasoning |
-| **Blockchain** tab | Per-bond blockchain payload, TX hash verification via Polygonscan |
+| **Blockchain tab** | Bond registration TX + all rate-change TXes (penalty/recovery) per bond, each with block, gas, and Polygonscan link |
 | **Data Entry** | Manual daily kWh submission with monthly coverage calendar |
 | **IoT Auto-Sync** | Form-based IoT push with live payload preview and bond endpoint reference |
 | **Bond Registration** | Full bond registration form with live JSON preview |
-| **Blockchain Explorer** | Network status, TX lookup, manual audit trigger with bond snapshot |
-| **Alert Center** | Full alert history with type, severity, and on-chain TX details |
+| **Blockchain Explorer** | Network status, on-chain bond registration, manual audit trigger with live PR snapshot |
+| **Alert Center** | Full alert history with severity/type/bond filters, duplicate system alert collapsing, and Polygonscan TX links |
 | **System Health** | Live status for PostgreSQL, Redis, Celery, Polygon, and NASA API |
 
 ---
@@ -268,17 +300,19 @@ Both thresholds and the multiplier are configurable via `.env`.
 
 ### Step 5 — Blockchain Write
 
-If a rate change was triggered, `blockchain_service.write_rate_change()` calls `recordRateChange()` on the deployed Polygon smart contract. The payload includes bond ID, previous rate, new rate, trigger type, and a full PR snapshot. The **transaction hash and block number** are stored in `audit_logs`, creating a permanent cryptographic link between the database record and the on-chain event.
+If a rate change was triggered, `blockchain_service.write_rate_change()` calls `recordRateChange()` on the deployed Polygon smart contract. The payload includes bond ID, previous rate, new rate, trigger type, and a full PR snapshot. The **transaction hash, block number, and gas used** are stored in `audit_logs`, creating a permanent cryptographic link between the database record and the on-chain event.
 
 **Lazy initialisation:** Web3 connects only on the first write call. A misconfigured `.env` disables blockchain writes only — all API routes, the audit pipeline, and the frontend continue to function normally.
 
 ### Step 6 — Alert Dispatch
 
-Rate change events trigger email (SendGrid) and SMS (Twilio) to the bond issuer, plus an alert record in the `alerts` table visible in the frontend Alert Center. Missing data alerts are rate-limited to prevent email quota exhaustion during multi-day gaps.
+Rate change events trigger email (SendGrid) and SMS (Twilio) to the bond issuer, plus a `critical` severity alert record in the `alerts` table visible in the Alert Center. Recovery events produce a `success` severity alert. Missing data alerts are rate-limited to prevent quota exhaustion during multi-day gaps.
 
 ### Step 7 — Audit Log Upsert
 
 Each audit record is an **upsert** against `(bond_id, date)`. Re-running the audit for the same bond and date overwrites the existing row rather than appending a duplicate — making manual re-runs, catchup, and the Beat scheduler all safe to call simultaneously.
+
+The idempotency guard recognises `COMPLIANT`, `PENALTY`, and `RECOVERY` verdicts — a fixed bug from the original implementation that could silently corrupt recovery records on re-run.
 
 ### Step 8 — Cache Invalidation
 
@@ -312,7 +346,7 @@ On every server startup, `catchup_missed_audits()` runs automatically via the Fa
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/bonds/` | All bonds with live PR and streak stats |
+| `GET` | `/api/bonds/` | All bonds with live PR, streak stats, and registration status |
 | `POST` | `/api/bonds/` | Register a new bond |
 | `GET` | `/api/bonds/{id}` | Single bond detail |
 | `GET` | `/api/bonds/{id}/timeseries` | PR + energy + rate chart data |
@@ -320,11 +354,13 @@ On every server startup, `catchup_missed_audits()` runs automatically via the Fa
 | `POST` | `/api/production/manual` | Submit daily kWh manually |
 | `POST` | `/api/production/iot` | IoT inverter push endpoint |
 | `POST` | `/api/audit/run` | Trigger a manual audit for a date |
+| `POST` | `/api/audit/catchup` | Run catchup for all missed dates |
 | `GET` | `/api/audit/` | Paginated audit log with filters |
-| `GET` | `/api/alerts/` | Alert history by bond, type, severity |
+| `GET` | `/api/alerts/` | Alert history filtered by bond, type, severity |
 | `GET` | `/api/alerts/summary` | Unread count and severity breakdown |
 | `GET` | `/api/blockchain/status` | Live Polygon node, contract address, and connection status |
-| `GET` | `/api/blockchain/tx/{hash}` | Fetch transaction details from Polygon |
+| `POST` | `/api/blockchain/register/{bond_id}` | Register a bond on the smart contract — persists TX hash to DB |
+| `PATCH` | `/api/blockchain/register/{bond_id}/tx` | Backfill registration TX hash for pre-existing registrations |
 | `GET` | `/api/health/` | Full system health across all services |
 
 > **Note on manual audits:** Always target a date at least 6 days in the past. NASA data for recent dates is not yet composited — auditing them produces `IGNORED` verdicts with no log written.
@@ -342,6 +378,9 @@ On every server startup, `catchup_missed_audits()` runs automatically via the Fa
 | `base_rate` | NUMERIC | Contractual base interest rate |
 | `current_rate` | NUMERIC | Live rate — may differ if penalised |
 | `status` | VARCHAR | `ACTIVE` / `PENALTY` / `MATURED` |
+| `registered_on_chain` | BOOLEAN | True once registered on the smart contract |
+| `registration_tx_hash` | VARCHAR | TX hash of the `registerBond()` call |
+| `registration_block` | BIGINT | Polygon block number of registration |
 | `created_at` | TIMESTAMPTZ | Registration timestamp — catchup floor |
 
 ### `audit_logs`
@@ -352,11 +391,25 @@ On every server startup, `catchup_missed_audits()` runs automatically via the Fa
 | `actual_kwh` | NUMERIC | Inverter production |
 | `expected_kwh` | NUMERIC | NASA-derived expected output |
 | `calculated_pr` | NUMERIC | Performance Ratio 0–1.0, NULL if IGNORED |
-| `verdict` | VARCHAR | `COMPLIANT` / `PENALTY` / `IGNORED` |
+| `verdict` | VARCHAR | `COMPLIANT` / `PENALTY` / `RECOVERY` / `IGNORED` |
 | `consecutive_penalty` | INT | Streak count at audit time |
 | `rate_before` / `rate_after` | NUMERIC | Rate snapshot at audit time |
 | `blockchain_tx_hash` | VARCHAR | On-chain proof — NULL if no rate change |
 | `block_number` | INT | Polygon block number |
+| `gas_used` | INT | Gas consumed by the blockchain TX |
+
+---
+
+## Alert Center
+
+The Alert Center supports filtering by **severity** (critical / warning / success), **type** (BLOCKCHAIN / SYSTEM / EMAIL / SMS), and **bond ID**. Duplicate system alerts — such as repeated missing-data warnings for the same bond — are collapsed into a single row with a **×N** count badge via a toggle. Each blockchain alert includes a clickable Polygonscan link.
+
+| Severity | When triggered |
+|---|---|
+| `critical` | PENALTY_TRIGGER — rate hike written to blockchain |
+| `success` | RECOVERY_TRIGGER — rate restored to base |
+| `warning` | Missing production data for a bond |
+| `info` | General system events |
 
 ---
 
@@ -371,7 +424,10 @@ On every server startup, `catchup_missed_audits()` runs automatically via the Fa
 | Streak bars | `audit_logs.consecutive_penalty / consecutive_compliant` |
 | Financial Impact calculator | `tvl × (current_rate − base_rate) ÷ 100 ÷ 365` |
 | Alert Center entries | `alerts` table — one row per email / SMS / blockchain event |
-| TX Hash in Glass Box | `audit_logs.blockchain_tx_hash` — Polygon transaction ID |
+| Bond Registration badge | `bonds.registered_on_chain` — DB-backed, persistent across reloads |
+| Registration TX in Blockchain tab | `bonds.registration_tx_hash` + `bonds.registration_block` |
+| Rate-change TXes in Blockchain tab | `audit_logs.blockchain_tx_hash` — all records with a TX hash |
+| Gas Used | `audit_logs.gas_used` — stored on every blockchain write |
 | Production vs NASA chart | `actual_kwh` vs `expected_kwh` from `audit_logs` per day |
 | Compliance Rate % | `COUNT(ACTIVE) ÷ COUNT(all non-MATURED bonds)` |
 | System Health service dots | `/api/health/` — live ping against every external service |
@@ -383,6 +439,12 @@ On every server startup, `catchup_missed_audits()` runs automatically via the Fa
 Copy `backend/.env.example` to `backend/.env`. All PR thresholds are configurable without touching code:
 
 ```bash
+# Database
+DATABASE_URL=postgresql://greenbond:password@localhost:5432/greenbonds
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
 # Blockchain
 POLYGON_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/YOUR_KEY
 WALLET_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
@@ -400,6 +462,9 @@ SENDGRID_API_KEY=SG.xxxx
 TWILIO_ACCOUNT_SID=ACxxxx
 TWILIO_AUTH_TOKEN=xxxx
 TWILIO_FROM_NUMBER=+1xxxxxxxxxx
+
+# Error monitoring (optional)
+SENTRY_DSN=https://xxxx@sentry.io/xxxx
 ```
 
 ---
@@ -413,49 +478,58 @@ greenbond-os/
 │   ├── config.py                 # Pydantic Settings — all config from .env
 │   ├── database.py               # SQLAlchemy engine + session factory
 │   ├── redis_client.py           # Shared Redis connection
-│   ├── models/                   # Bond, AuditLog, ProductionEntry, Alert
-│   ├── routers/                  # bonds, audit, production, alerts, blockchain, health
+│   ├── migrate_add_registration.py  # One-time migration for v2 schema additions
+│   ├── models/
+│   │   ├── bond.py               # registered_on_chain, registration_tx_hash, registration_block
+│   │   ├── audit_log.py          # gas_used column added
+│   │   ├── production_entry.py
+│   │   └── alert.py
+│   ├── routers/
+│   │   ├── bonds.py              # BondOut exposes registration fields
+│   │   ├── audit.py
+│   │   ├── production.py
+│   │   ├── alerts.py
+│   │   ├── blockchain.py         # register + backfill TX endpoints, persists to DB
+│   │   └── health.py
 │   ├── services/
 │   │   ├── pr_engine.py          # PR calculator + manipulation detection
 │   │   ├── penalty_engine.py     # Streak-based rate change evaluator
 │   │   ├── nasa.py               # NASA POWER API client + Redis cache
-│   │   ├── blockchain.py         # Web3 Polygon writer, lazy initialisation
+│   │   ├── blockchain.py         # Web3 writer; get_transaction uses read-only RPC
 │   │   ├── alerts.py             # SendGrid + Twilio dispatcher + rate limiter
-│   │   └── audit.py              # Audit log upsert + streak reader
+│   │   └── audit.py              # Upsert + streak reader; RECOVERY in idempotency guard
 │   ├── tasks/
 │   │   ├── celery_app.py         # Celery app factory + Beat schedule
-│   │   ├── daily_audit.py        # 8-step audit pipeline
+│   │   ├── daily_audit.py        # 8-step audit pipeline; gas_used written to audit_log
 │   │   ├── catchup.py            # Startup missed-audit recovery
 │   │   └── maturity.py           # Bond maturity date checker
 │   ├── contracts/abi.json        # Polygon smart contract ABI
-│   ├── .env.example              # Safe credential template
+│   ├── .env.example
 │   └── requirements.txt
 ├── frontend/
 │   └── src/
 │       ├── views/
-│       │   ├── Dashboard.jsx         # Portfolio KPIs and bond table
-│       │   ├── BondDetail.jsx        # Charts, Glass Box, audit log, blockchain tab
-│       │   ├── DataEntry.jsx         # Manual entry + IoT push form
-│       │   ├── BondRegistration.jsx  # Bond registration form
-│       │   ├── BlockchainExplorer.jsx# Network status, TX lookup, audit trigger
-│       │   ├── Alerts.jsx            # Alert history
-│       │   └── SystemHealth.jsx      # Live service status
+│       │   ├── Dashboard.jsx
+│       │   ├── BondDetail.jsx        # Blockchain tab: registration TX + all rate-change TXes
+│       │   ├── DataEntry.jsx
+│       │   ├── BondRegistration.jsx
+│       │   ├── BlockchainExplorer.jsx  # Register Bonds: DB-backed state, backfill form, PR refresh
+│       │   ├── Alerts.jsx            # Rewritten: filters, dedup toggle, severity stripes
+│       │   └── SystemHealth.jsx
 │       ├── components/
-│       │   ├── BlockchainModal.jsx   # Raw payload viewer with contract status
-│       │   ├── GlassBox.jsx          # Audit transparency breakdown
-│       │   ├── StreakTracker.jsx      # Penalty / recovery streak bars
-│       │   ├── StatusBadge.jsx       # Bond status pill
-│       │   ├── Sidebar.jsx           # Navigation + system indicators
-│       │   └── Topbar.jsx            # Live chain status + alert bell
+│       │   ├── BlockchainModal.jsx
+│       │   ├── GlassBox.jsx
+│       │   ├── StreakTracker.jsx
+│       │   ├── StatusBadge.jsx
+│       │   ├── Sidebar.jsx
+│       │   └── Topbar.jsx
 │       ├── hooks/
-│       │   └── useBonds.js           # useBonds, useBond query hooks
-│       └── api.js                    # Axios API client
+│       │   └── useBonds.js
+│       └── api.js                    # setRegistrationTx() added
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
-
----
 
 ## License
 

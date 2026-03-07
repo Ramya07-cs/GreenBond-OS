@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, String, Numeric, Integer, DateTime, Date, Boolean
+from sqlalchemy import Column, String, Numeric, Integer, DateTime, Date, Boolean, BigInteger
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from database import Base
@@ -26,6 +26,11 @@ class Bond(Base):
     maturity_date = Column(Date, nullable=True)
     issuer_email = Column(String(200), nullable=True)
     issuer_phone = Column(String(20), nullable=True)
+
+    # ── On-chain registration (set once via /api/blockchain/register/:id) ─────
+    registered_on_chain = Column(Boolean, default=False, nullable=False)
+    registration_tx_hash = Column(String(100), nullable=True)
+    registration_block = Column(BigInteger, nullable=True)
 
     # ── Lifecycle fields (set at maturity) ────────────────────────────────────
     matured_at = Column(DateTime(timezone=True), nullable=True)

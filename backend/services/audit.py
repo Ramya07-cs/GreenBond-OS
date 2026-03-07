@@ -33,7 +33,7 @@ class AuditService:
             .filter(
                 AuditLog.bond_id == bond_id,
                 AuditLog.date == audit_date,
-                AuditLog.verdict.in_(["COMPLIANT", "PENALTY"]),
+                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
             )
             .first()
         )
@@ -78,6 +78,7 @@ class AuditService:
         log.rate_after = penalty_decision.new_rate
         log.blockchain_tx_hash = tx_result["tx_hash"] if tx_result else None
         log.block_number = tx_result["block_number"] if tx_result else None
+        log.gas_used = tx_result["gas_used"] if tx_result else None
 
         db.flush()  # Get the ID without committing
 

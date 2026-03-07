@@ -45,6 +45,13 @@ export const fetchBlockchainStatus = () =>
   api.get("/api/blockchain/status").then((r) => r.data);
 export const fetchTransaction = (hash) =>
   api.get(`/api/blockchain/tx/${hash}`).then((r) => r.data);
+export const registerBondOnChain = (bondId) =>
+  api.post(`/api/blockchain/register/${bondId}`).then((r) => r.data);
+export const setRegistrationTx = (bondId, txHash, blockNumber = null) => {
+  const params = { tx_hash: txHash };
+  if (blockNumber) params.block_number = blockNumber;
+  return api.patch(`/api/blockchain/register/${bondId}/tx`, null, { params }).then((r) => r.data);
+};
 
 // ── Health ─────────────────────────────────────────────────────────────────
 export const fetchSystemHealth = () =>
