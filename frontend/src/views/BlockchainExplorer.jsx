@@ -373,12 +373,33 @@ export default function BlockchainExplorer() {
                 </div>
               </div>
 
+              {/* Low balance warning banner */}
+              {status.balance_low && (
+                <div style={{ padding: "12px 16px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.3)", borderRadius: "var(--r2)", display: "flex", alignItems: "flex-start", gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🚨</span>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--red)", marginBottom: 3 }}>
+                      WALLET LOW — {status.wallet_balance_matic} MATIC remaining
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text2)", lineHeight: 1.6 }}>
+                      Below the {status.balance_threshold_matic} MATIC threshold. Top up your wallet before the next penalty trigger —
+                      blockchain writes will fail with "insufficient funds" if balance reaches zero.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 <StatBox label="Network" value={status.network?.replace("Polygon ", "")} color="var(--blue)" />
                 <StatBox label="Chain ID" value={status.chain_id} color="var(--amber)" />
                 <StatBox label="Latest Block" value={status.latest_block?.toLocaleString()} color="var(--green)" sub="Polygon Amoy" />
                 <StatBox label="Gas Price" value={status.gas_price_gwei ? `${status.gas_price_gwei} Gwei` : "—"} color="var(--cyan)" />
-                <StatBox label="Explorer" value="Amoy Polygonscan" color="var(--text2)" sub="amoy.polygonscan.com" />
+                <StatBox
+                  label="Wallet Balance"
+                  value={status.wallet_balance_matic != null ? `${status.wallet_balance_matic} MATIC` : "—"}
+                  color={status.balance_low ? "var(--red)" : "var(--green)"}
+                  sub={status.balance_low ? "⚠ LOW — top up soon" : `Threshold: ${status.balance_threshold_matic} MATIC`}
+                />
                 <StatBox label="Auto-refresh" value="15s" color="var(--text3)" sub="Live polling active" />
               </div>
 

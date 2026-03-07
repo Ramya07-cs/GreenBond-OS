@@ -22,10 +22,15 @@ export default function SystemHealth() {
   ];
 
   // Build a subtitle line for each service from the fields the backend actually returns
-  function svcDetail(svc = {}) {
+  function svcDetail(svc = {}, key = "") {
     if (svc.memory_mb != null) return `Memory: ${svc.memory_mb} MB`;
-    // blockchain returns latest_block (not latency_ms)
-    if (svc.latest_block != null) return `Block #${svc.latest_block?.toLocaleString()} · ${svc.network || ""}`;
+    if (key === "blockchain") {
+      const parts = [];
+      if (svc.latest_block != null) parts.push(`Block #${svc.latest_block?.toLocaleString()}`);
+      if (svc.network) parts.push(svc.network);
+      if (svc.wallet_balance_matic != null) parts.push(`Wallet: ${svc.wallet_balance_matic} MATIC${svc.balance_low ? " ⚠ LOW" : ""}`);
+      return parts.join(" · ");
+    }
     if (svc.latency_ms != null) return `Latency: ${svc.latency_ms} ms`;
     if (svc.ping_bond_id) return `Pinged via ${svc.ping_bond_id}`;
     if (svc.reason) return svc.reason;
@@ -53,13 +58,29 @@ export default function SystemHealth() {
         </button>
       </div>
 
+      {/* Low balance warning — only shown when balance is critically low */}
+      {services.blockchain?.balance_low && (
+        <div style={{ padding: "12px 16px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.3)", borderRadius: "var(--r2)", marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>🚨</span>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--red)", marginBottom: 3 }}>
+              WALLET LOW — {services.blockchain.wallet_balance_matic} MATIC remaining
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text2)", lineHeight: 1.6 }}>
+              Blockchain penalty writes will fail when the wallet runs dry. Top up your Amoy testnet wallet before the next 6 AM audit.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KPIs — only show live data, no hardcoded placeholders */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 14 }}>
         {[
           { l: "PostgreSQL", v: services.postgresql?.ok ? "ONLINE" : "OFFLINE", c: services.postgresql?.ok ? "var(--green)" : "var(--red)", s: services.postgresql?.status || "—" },
           { l: "Redis Memory", v: services.redis?.memory_mb != null ? `${services.redis.memory_mb} MB` : "—", c: services.redis?.ok ? "var(--green)" : "var(--red)", s: services.redis?.status || "—" },
           { l: "Celery Queue", v: services.celery_worker?.ok ? "RUNNING" : "DOWN", c: services.celery_worker?.ok ? "var(--green)" : "var(--red)", s: "Worker status" },
           { l: "Blockchain Block", v: services.blockchain?.latest_block != null ? `#${services.blockchain.latest_block.toLocaleString()}` : "—", c: services.blockchain?.ok ? "var(--cyan)" : "var(--red)", s: services.blockchain?.network || "Polygon" },
+          { l: "Wallet Balance", v: services.blockchain?.wallet_balance_matic != null ? `${services.blockchain.wallet_balance_matic} MATIC` : "—", c: services.blockchain?.balance_low ? "var(--red)" : "var(--green)", s: services.blockchain?.balance_low ? "⚠ LOW — top up!" : "Sufficient for TX" },
         ].map(k => (
           <div key={k.l} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: "14px 16px", position: "relative", overflow: "hidden" }}>
             <div style={{ fontSize: 9, letterSpacing: ".15em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 8 }}>{k.l}</div>
@@ -81,8 +102,8 @@ export default function SystemHealth() {
               <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)" }}>
                 <div>
                   <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>{icon} {label}</div>
-                  <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 2, fontFamily: "var(--mono)" }}>
-                    {svcDetail(svc)}
+                  <div style={{ fontSize: 9, color: svc.balance_low ? "var(--red)" : "var(--text3)", marginTop: 2, fontFamily: "var(--mono)" }}>
+                    {svcDetail(svc, key)}
                   </div>
                 </div>
                 <div style={{ fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 5, color: ok ? "var(--green)" : "var(--red)" }}>

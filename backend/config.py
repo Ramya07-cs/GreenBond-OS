@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     CONTRACT_ADDRESS: str = "0xYOUR_DEPLOYED_CONTRACT"
     # Alert when wallet balance drops below this amount (in MATIC).
     # At ~50 gwei gas price each TX costs ~0.0075 MATIC — 0.1 MATIC ≈ 13 TXs remaining.
-    LOW_BALANCE_THRESHOLD_MATIC: float = 0.1
+    LOW_BALANCE_THRESHOLD_MATIC: float = 0.005
 
     # NASA POWER API
     NASA_API_BASE: str = "https://power.larc.nasa.gov/api/temporal/daily/point"

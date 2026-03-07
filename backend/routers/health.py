@@ -50,17 +50,33 @@ def system_health(db: Session = Depends(get_db)):
         logger.error(f"[Health] Redis check failed: {e}")
         services["redis"] = {"status": "ERROR", "ok": False, "error": str(e)}
 
-    # Celery (check via Redis queue presence)
+    # Celery worker — actually ping via Celery inspect (2s timeout)
     try:
-        celery_keys = redis_client.keys("celery*")
+        from tasks.celery_app import celery_app
+        inspector = celery_app.control.inspect(timeout=2.0)
+        active_workers = inspector.ping()
+        worker_alive = bool(active_workers)
         services["celery_worker"] = {
-            "status": "RUNNING" if celery_keys is not None else "UNKNOWN",
-            "ok": True,
+            "status": "RUNNING" if worker_alive else "OFFLINE",
+            "ok": worker_alive,
+            "workers": list(active_workers.keys()) if active_workers else [],
         }
-        services["celery_beat"] = {"status": "RUNNING", "ok": True}
     except Exception as e:
         services["celery_worker"] = {"status": "ERROR", "ok": False, "error": str(e)}
-        services["celery_beat"] = {"status": "ERROR", "ok": False}
+
+    # Celery Beat — check if beat schedule file was written recently
+    try:
+        import os
+        beat_db = "/tmp/celerybeat-schedule"
+        beat_alive = os.path.exists(beat_db) and (
+            time.time() - os.path.getmtime(beat_db) < 3600
+        )
+        services["celery_beat"] = {
+            "status": "RUNNING" if beat_alive else "OFFLINE",
+            "ok": beat_alive,
+        }
+    except Exception as e:
+        services["celery_beat"] = {"status": "ERROR", "ok": False, "error": str(e)}
 
     # Blockchain
     connected = blockchain_service.is_connected()
