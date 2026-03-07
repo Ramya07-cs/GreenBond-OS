@@ -10,6 +10,19 @@ ABI_PATH = Path(__file__).parent.parent / "contracts" / "abi.json"
 with open(ABI_PATH) as f:
     CONTRACT_ABI = json.load(f)
 
+# Sentinel string present in Web3/node error messages for empty wallet
+_INSUFFICIENT_FUNDS_MARKERS = (
+    "insufficient funds",
+    "intrinsic gas too low",
+    "exceeds allowance",
+)
+
+
+def _is_insufficient_funds(exc: Exception) -> bool:
+    """Return True if the exception is caused by an empty/low wallet balance."""
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _INSUFFICIENT_FUNDS_MARKERS)
+
 
 class BlockchainService:
     def __init__(self):
@@ -60,7 +73,7 @@ class BlockchainService:
             self._w3 = None
             return False
 
-    # ── Status helpers (used by health check — don't require _ensure_connected) ─
+    # ── Status helpers ────────────────────────────────────────────────────────
 
     def is_connected(self) -> bool:
         try:
@@ -86,9 +99,42 @@ class BlockchainService:
         except Exception:
             return None
 
+    def get_wallet_balance_matic(self) -> Optional[float]:
+        """
+        Return the wallet's current MATIC balance.
+        Used by the health check and blockchain status endpoint.
+        Returns None if unavailable (RPC down or wallet not configured).
+        """
+        try:
+            from web3 import Web3
+            w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
+            if not w3.is_connected():
+                return None
+            # Derive address from private key without needing full _ensure_connected
+            account = w3.eth.account.from_key(settings.WALLET_PRIVATE_KEY)
+            balance_wei = w3.eth.get_balance(account.address)
+            return round(float(w3.from_wei(balance_wei, "ether")), 6)
+        except Exception as e:
+            logger.error(f"[Blockchain] Balance check failed: {e}")
+            return None
+
+    def is_balance_low(self) -> bool:
+        """Return True if the wallet balance is below the configured threshold."""
+        bal = self.get_wallet_balance_matic()
+        if bal is None:
+            return False  # Can't tell — don't raise a false alarm
+        return bal < settings.LOW_BALANCE_THRESHOLD_MATIC
+
     # ── Bond registration ─────────────────────────────────────────────────────
 
     def register_bond(self, bond_id: str, base_rate: float) -> Optional[dict]:
+        """
+        Register a new bond on the smart contract.
+        Must be called when a bond is created — recordRateChange will revert
+        with 'bond not registered' if this isn't called first.
+        base_rate is in percent (e.g. 5.0) — converted to basis points internally.
+        Returns tx receipt dict, or None if blockchain is unavailable (non-fatal).
+        """
         if not self._ensure_connected():
             logger.warning(
                 f"[Blockchain] Skipping registerBond for {bond_id} — not connected. "
@@ -108,7 +154,7 @@ class BlockchainService:
                 "nonce": nonce,
                 "gas": 150000,
                 "gasPrice": self._w3.eth.gas_price,
-                "chainId": 80002,  # Polygon Amoy Testnet
+                "chainId": 80002,
             })
 
             signed = self._w3.eth.account.sign_transaction(tx, settings.WALLET_PRIVATE_KEY)
@@ -129,8 +175,15 @@ class BlockchainService:
             return result
 
         except Exception as e:
-            logger.error(f"[Blockchain] registerBond failed for {bond_id}: {e}")
-            self._w3 = None  # Allow reconnect retry on next call
+            if _is_insufficient_funds(e):
+                bal = self.get_wallet_balance_matic()
+                logger.critical(
+                    f"[Blockchain] INSUFFICIENT FUNDS — registerBond for {bond_id} failed. "
+                    f"Wallet balance: {bal} MATIC. Top up your wallet to restore on-chain writes."
+                )
+            else:
+                logger.error(f"[Blockchain] registerBond failed for {bond_id}: {e}")
+            self._w3 = None
             return None
 
     # ── Rate change write ─────────────────────────────────────────────────────
@@ -145,8 +198,11 @@ class BlockchainService:
     ) -> Optional[dict]:
         """
         Write a rate change event to the Polygon smart contract.
-        Returns transaction receipt dict or None on failure.
-        A None return is handled gracefully by daily_audit.py.
+        Returns transaction receipt dict, or None on failure.
+
+        On insufficient funds: logs CRITICAL, fires an email+SMS alert so the
+        operator knows to top up. The audit record is still written to PostgreSQL
+        without a TX hash — the rate change is not lost, just unanchored on-chain.
         """
         if not self._ensure_connected():
             logger.warning(
@@ -187,12 +243,40 @@ class BlockchainService:
                 f"[Blockchain] TX confirmed: {result['tx_hash']} "
                 f"Block #{result['block_number']} Gas: {result['gas_used']}"
             )
+
+            # After a successful TX, check if balance has dipped low — warn early
+            # so the operator tops up before the next TX fails completely.
+            try:
+                bal = self.get_wallet_balance_matic()
+                if bal is not None and bal < settings.LOW_BALANCE_THRESHOLD_MATIC:
+                    logger.warning(
+                        f"[Blockchain] LOW BALANCE WARNING: wallet has {bal} MATIC remaining "
+                        f"(threshold: {settings.LOW_BALANCE_THRESHOLD_MATIC} MATIC). "
+                        f"Top up soon — next TX may fail."
+                    )
+                    _send_low_balance_alert(bal)
+            except Exception:
+                pass  # Never let a balance check block a successful TX result
+
             return result
 
         except Exception as e:
-            logger.error(f"[Blockchain] Write failed for {bond_id}: {e}")
-            self._w3 = None  # Allow reconnect retry on next call
-            return None
+            if _is_insufficient_funds(e):
+                bal = self.get_wallet_balance_matic()
+                logger.critical(
+                    f"[Blockchain] INSUFFICIENT FUNDS — TX for {bond_id} ({trigger_type}) FAILED. "
+                    f"Wallet balance: {bal} MATIC. "
+                    f"Rate change IS recorded in PostgreSQL (no TX hash). "
+                    f"Top up wallet and use POST /api/blockchain/retry-pending to re-anchor."
+                )
+                # Fire an alert so the operator is notified immediately
+                _send_low_balance_alert(bal, bond_id=bond_id, trigger_type=trigger_type)
+                # Do NOT reset _w3 — this is a funds problem, not a connection problem
+                return None
+            else:
+                logger.error(f"[Blockchain] Write failed for {bond_id}: {e}")
+                self._w3 = None  # Allow reconnect retry on next call
+                return None
 
     # ── Read functions ────────────────────────────────────────────────────────
 
@@ -204,13 +288,11 @@ class BlockchainService:
         try:
             from web3 import Web3
 
-            # Standalone read-only connection — no wallet or contract needed
             w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
             if not w3.is_connected():
                 logger.error("[Blockchain] RPC not reachable for TX lookup")
                 return None
 
-            # Normalize hash: accept "0x..." string or raw bytes
             if isinstance(tx_hash, str):
                 tx_hash_bytes = Web3.to_bytes(hexstr=tx_hash)
             else:
@@ -252,6 +334,63 @@ class BlockchainService:
         except Exception as e:
             logger.error(f"[Blockchain] getRateHistory failed for {bond_id}: {e}")
             return None
+
+
+# ── Alert helper (module-level to avoid circular import) ─────────────────────
+
+def _send_low_balance_alert(
+    balance_matic: Optional[float],
+    bond_id: Optional[str] = None,
+    trigger_type: Optional[str] = None,
+):
+    """
+    Fire an email + SMS alert when the wallet is out of / nearly out of funds.
+    Deliberately does not raise — a broken alert must never crash the audit.
+    """
+    try:
+        from services.alerts import alert_service
+        from database import SessionLocal
+        from models import Bond
+
+        db = SessionLocal()
+        try:
+            # Use first active bond's contact details for the alert recipient
+            bond = db.query(Bond).filter(Bond.status != "MATURED").first()
+            issuer_email = bond.issuer_email if bond else None
+            issuer_phone = bond.issuer_phone if bond else None
+            bond_name = bond.name if bond else "Unknown"
+        finally:
+            db.close()
+
+        bal_str = f"{balance_matic} MATIC" if balance_matic is not None else "unknown balance"
+        if bond_id and trigger_type:
+            subject = f"🚨 Blockchain TX FAILED — {bond_id} rate change not anchored on-chain"
+            body = (
+                f"A {trigger_type} rate change for bond {bond_id} could NOT be written "
+                f"to the Polygon smart contract because the operator wallet has "
+                f"insufficient funds ({bal_str}).\n\n"
+                f"The rate change IS recorded in PostgreSQL but has no blockchain proof until "
+                f"the wallet is topped up and POST /api/blockchain/retry-pending is called.\n\n"
+                f"Top up the wallet immediately to restore audit trail integrity."
+            )
+        else:
+            subject = f"⚠️ Blockchain wallet low balance — {bal_str} remaining"
+            body = (
+                f"The GreenBond OS operator wallet balance has dropped to {bal_str}, "
+                f"below the {settings.LOW_BALANCE_THRESHOLD_MATIC} MATIC threshold.\n\n"
+                f"Please top up the wallet soon. If balance reaches zero, future penalty "
+                f"and recovery rate changes will not be anchored on the Polygon blockchain."
+            )
+
+        alert_service.send_custom_alert(
+            subject=subject,
+            body=body,
+            issuer_email=issuer_email,
+            issuer_phone=issuer_phone,
+        )
+        logger.info(f"[Blockchain] Low-balance alert dispatched. Balance: {bal_str}")
+    except Exception as e:
+        logger.error(f"[Blockchain] Failed to send low-balance alert: {e}")
 
 
 blockchain_service = BlockchainService()

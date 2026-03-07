@@ -64,11 +64,19 @@ def system_health(db: Session = Depends(get_db)):
 
     # Blockchain
     connected = blockchain_service.is_connected()
+    wallet_balance = blockchain_service.get_wallet_balance_matic() if connected else None
+    balance_low = (
+        wallet_balance is not None
+        and wallet_balance < settings.LOW_BALANCE_THRESHOLD_MATIC
+    )
     services["blockchain"] = {
         "status": "SYNCED" if connected else "DISCONNECTED",
-        "ok": connected,
+        "ok": connected and not balance_low,
         "network": "Polygon Amoy Testnet",
         "latest_block": blockchain_service.get_latest_block() if connected else None,
+        "wallet_balance_matic": wallet_balance,
+        "balance_low": balance_low,
+        "balance_threshold_matic": settings.LOW_BALANCE_THRESHOLD_MATIC,
     }
 
     # ── 3. NASA ping — dynamic bond coordinate ────────────────────────────────

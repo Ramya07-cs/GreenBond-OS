@@ -219,4 +219,29 @@ class AlertService:
         return results
 
 
+    def send_custom_alert(
+        self,
+        subject: str,
+        body: str,
+        issuer_email: Optional[str] = None,
+        issuer_phone: Optional[str] = None,
+    ) -> dict:
+        """
+        Generic alert dispatcher used for operational issues like low wallet balance.
+        Sends to the issuer contacts of the first active bond found.
+        """
+        results = {}
+        html_body = f"""
+        <div style="font-family:monospace;background:#0a0a0a;color:#e8f0fe;padding:24px;border-radius:8px">
+          <h2 style="color:#FF3D3D">🚨 GreenBond OS — Operator Alert</h2>
+          <pre style="white-space:pre-wrap;color:#CFD8DC;line-height:1.7">{body}</pre>
+        </div>
+        """
+        if issuer_email:
+            results["email"] = self.send_email(issuer_email, subject, html_body)
+        if issuer_phone:
+            results["sms"] = self.send_sms(issuer_phone, body[:160])
+        return results
+
+
 alert_service = AlertService()

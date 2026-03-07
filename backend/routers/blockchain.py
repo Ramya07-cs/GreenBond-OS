@@ -6,13 +6,17 @@ router = APIRouter(prefix="/api/blockchain", tags=["blockchain"])
 
 @router.get("/status")
 def get_blockchain_status():
-    """Return current Polygon node connection status."""
+    """Return current Polygon node connection status including wallet balance."""
     from config import settings
     connected = blockchain_service.is_connected()
     block = blockchain_service.get_latest_block()
     gas = blockchain_service.get_gas_price_gwei()
+    balance = blockchain_service.get_wallet_balance_matic() if connected else None
     contract = settings.CONTRACT_ADDRESS
     contract_configured = bool(contract and contract != "0xYOUR_DEPLOYED_CONTRACT")
+    balance_low = (
+        balance is not None and balance < settings.LOW_BALANCE_THRESHOLD_MATIC
+    )
     return {
         "connected": connected,
         "network": "Polygon Amoy Testnet",
@@ -21,6 +25,9 @@ def get_blockchain_status():
         "gas_price_gwei": gas,
         "contract_address": contract if contract_configured else None,
         "contract_configured": contract_configured,
+        "wallet_balance_matic": balance,
+        "balance_low": balance_low,
+        "balance_threshold_matic": settings.LOW_BALANCE_THRESHOLD_MATIC,
     }
 
 
@@ -46,13 +53,6 @@ def get_rate_history(bond_id: str):
 
 @router.post("/register/{bond_id}")
 def register_bond_on_chain(bond_id: str):
-    """
-    Manually register a bond on the smart contract.
-    Persists the registration TX hash to the bond record so the
-    frontend can show a permanent ✓ REGISTERED state after page refresh.
-    Safe to call again if already registered — the smart contract is
-    idempotent and the DB record will be updated with the latest TX.
-    """
     from database import SessionLocal
     from models import Bond
     from redis_client import redis_client
