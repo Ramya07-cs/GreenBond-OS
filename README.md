@@ -162,7 +162,7 @@ redis-cli ping   # should return: PONG
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourname/greenbond-os.git
+git clone https://github.com/Ramya07-cs/greenbond-os.git
 cd greenbond-os
 
 # Backend
