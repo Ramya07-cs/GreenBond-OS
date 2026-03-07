@@ -1,24 +1,3 @@
-"""
-tasks/maturity.py — Bond Lifecycle: Maturity Detection & Final Report
-
-Runs daily via Celery Beat (after the main audit).
-
-What it does:
-  1. Queries all ACTIVE or PENALTY bonds where maturity_date <= today
-  2. For each matured bond:
-     a. Computes final performance stats (avg PR, total penalty days)
-     b. Updates bond status to MATURED in PostgreSQL
-     c. Records matured_at timestamp and final stats
-     d. Sends maturity alert to issuer (email + SMS)
-     e. Logs a MATURED alert record
-     f. Clears bond from Redis caches
-  3. Returns a summary for logging
-
-Why a separate task and not inside daily_audit?
-  Keeps concerns separated. daily_audit is about per-day PR monitoring.
-  Maturity is a one-time lifecycle event — different logic, different alerts.
-"""
-
 import logging
 from datetime import date, datetime, timezone
 from sqlalchemy import func

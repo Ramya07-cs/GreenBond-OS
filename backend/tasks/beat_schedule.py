@@ -28,4 +28,15 @@ CELERYBEAT_SCHEDULE = {
         ),
         "options": {"queue": "audits"},
     },
+
+    # ── Retry IGNORED days ────────────────────────────────────────────────────
+    # NASA POWER has a 5–6 day data lag. Days audited before NASA published GHI
+    # are stored as IGNORED. This job runs at 14:00 daily so that any date that
+    # has crossed the lag window gets re-audited automatically — without needing
+    # a server restart to trigger the startup catchup.
+    "retry-ignored-audits": {
+        "task": "tasks.catchup.retry_ignored_audits",
+        "schedule": crontab(hour=14, minute=0),
+        "options": {"queue": "audits"},
+    },
 }

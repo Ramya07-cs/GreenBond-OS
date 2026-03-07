@@ -4,12 +4,59 @@ import {
   AreaChart, Area, LineChart, Line, ComposedChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { fetchAuditLogs, fetchTimeseries, fetchBlockchainStatus } from "../api";
+import { fetchAuditLogs, fetchTimeseries, fetchBlockchainStatus, fetchTransaction } from "../api";
 import { useBond } from "../hooks/useBonds";
 import StatusBadge from "../components/StatusBadge";
 import StreakTracker from "../components/StreakTracker";
 import GlassBox from "../components/GlassBox";
 import BlockchainModal from "../components/BlockchainModal";
+
+function InlineTxLookup() {
+  const [input, setInput] = useState("");
+  const [hash, setHash] = useState(null);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["tx-inline", hash],
+    queryFn: () => fetchTransaction(hash),
+    enabled: !!hash,
+    retry: false,
+  });
+
+  return (
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>🔎 Transaction Lookup</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Enter TX hash (0x...)"
+          onKeyDown={e => e.key === "Enter" && input.trim() && setHash(input.trim())}
+          style={{ flex: 1, background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "9px 12px", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 11, outline: "none" }} />
+        <button onClick={() => { if (input.trim()) setHash(input.trim()); }} disabled={!input.trim() || isLoading}
+          style={{ padding: "9px 16px", background: "var(--blue)", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)", opacity: !input.trim() ? .4 : 1 }}>
+          {isLoading ? "⏳" : "Look Up ↗"}
+        </button>
+      </div>
+      {input && (
+        <a href={`https://amoy.polygonscan.com/tx/${input}`} target="_blank" rel="noreferrer"
+          style={{ display: "inline-block", marginTop: 6, fontSize: 10, color: "var(--blue)", fontFamily: "var(--mono)", textDecoration: "none" }}>
+          ↗ View directly on Polygonscan
+        </a>
+      )}
+      {isError && <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)", padding: "8px 12px", background: "var(--red-dim)", borderRadius: "var(--r2)" }}>⚠ Transaction not found or node unavailable.</div>}
+      {data && (
+        <div style={{ marginTop: 12, background: "var(--card2)", border: "1px solid rgba(33,150,243,.2)", borderRadius: "var(--r2)", padding: 14 }}>
+          <div style={{ fontSize: 10, color: "var(--blue)", fontWeight: 700, marginBottom: 8 }}>TX DETAILS</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {Object.entries(data).slice(0, 8).map(([k, v]) => (
+              <div key={k} style={{ background: "var(--input)", borderRadius: "var(--r2)", border: "1px solid var(--border)", padding: "6px 10px" }}>
+                <div style={{ fontSize: 9, color: "var(--text3)", marginBottom: 2 }}>{k}</div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--cyan)", wordBreak: "break-all" }}>{String(v) || "—"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CT({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -279,30 +326,64 @@ export default function BondDetail({ bond: initialBond, onBack }) {
 
       {/* ── BLOCKCHAIN ── */}
       {tab === "blockchain" && (
-        <div>
-          <div style={{ background: "var(--card2)", border: "1px solid rgba(33,150,243,.2)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
-            <div style={{ fontSize: 10, color: "var(--text3)", letterSpacing: ".1em", marginBottom: 8 }}>LATEST TRANSACTION</div>
-            <div style={{ fontSize: 11, color: "var(--blue)", wordBreak: "break-all", cursor: "pointer", fontFamily: "var(--mono)" }} onClick={() => setTxModal(true)}>
-              {latestAudit?.blockchain_tx_hash || "No transactions yet"} {latestAudit?.blockchain_tx_hash ? "↗" : ""}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
-              {[
-                { l: "Gas Used", v: latestAudit?.gas_used?.toLocaleString() || "—" },
-                { l: "Block Number", v: latestAudit?.block_number?.toLocaleString() || "—" },
-
-                { l: "Network", v: chainStatus?.network || "Polygon Amoy Testnet" },
-                { l: "Status", v: latestAudit?.blockchain_tx_hash ? "✅ CONFIRMED" : chainStatus?.connected === false ? "⚠ Not Connected" : "—" },
-              ].map(t => (
-                <div key={t.l} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: 10 }}>
-                  <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 4 }}>{t.l}</div>
-                  <div style={{ fontSize: 12, color: "var(--cyan)", fontWeight: 600, fontFamily: "var(--mono)" }}>{t.v}</div>
-                </div>
-              ))}
-            </div>
-            <button onClick={() => setTxModal(true)} style={{ marginTop: 14, padding: "10px 20px", borderRadius: "var(--r2)", background: "var(--green)", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)" }}>
-              🔍 View Raw JSON Payload
-            </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Node status strip */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+            {[
+              { l: "Network",      v: chainStatus?.network?.replace("Polygon ","") || "Amoy Testnet", c: "var(--blue)" },
+              { l: "Connected",    v: chainStatus == null ? "..." : chainStatus.connected ? "✅ YES" : "⚠ NO", c: chainStatus?.connected ? "var(--green)" : "var(--red)" },
+              { l: "Latest Block", v: chainStatus?.latest_block != null ? `#${chainStatus.latest_block.toLocaleString()}` : "—", c: "var(--cyan)" },
+              { l: "Gas Price",    v: chainStatus?.gas_price_gwei != null ? `${chainStatus.gas_price_gwei} gwei` : "—", c: "var(--amber)" },
+            ].map(t => (
+              <div key={t.l} style={{ background: "var(--card2)", border: "1px solid rgba(33,150,243,.15)", borderRadius: "var(--r2)", padding: "12px 14px" }}>
+                <div style={{ fontSize: 9, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 5 }}>{t.l}</div>
+                <div style={{ fontSize: 13, color: t.c, fontWeight: 700, fontFamily: "var(--mono)" }}>{t.v}</div>
+              </div>
+            ))}
           </div>
+
+          {/* Latest TX for this bond */}
+          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>🔗 Latest On-Chain Transaction</div>
+            {latestAudit?.blockchain_tx_hash ? (
+              <>
+                <div style={{ fontSize: 11, color: "var(--blue)", wordBreak: "break-all", fontFamily: "var(--mono)", cursor: "pointer", marginBottom: 12 }} onClick={() => setTxModal(true)}>
+                  {latestAudit.blockchain_tx_hash} ↗
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  {[
+                    { l: "Gas Used",     v: latestAudit.gas_used?.toLocaleString() || "—" },
+                    { l: "Block Number", v: latestAudit.block_number?.toLocaleString() || "—" },
+                    { l: "Date",         v: latestAudit.date || "—" },
+                    { l: "Status",       v: "✅ CONFIRMED" },
+                  ].map(t => (
+                    <div key={t.l} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: 10 }}>
+                      <div style={{ fontSize: 9, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 3 }}>{t.l}</div>
+                      <div style={{ fontSize: 12, color: "var(--cyan)", fontWeight: 600, fontFamily: "var(--mono)" }}>{t.v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setTxModal(true)} style={{ padding: "9px 16px", borderRadius: "var(--r2)", background: "var(--green)", border: "none", color: "#000", fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "var(--mono)" }}>
+                    🔍 View Raw JSON Payload
+                  </button>
+                  <a href={`https://amoy.polygonscan.com/tx/${latestAudit.blockchain_tx_hash}`} target="_blank" rel="noreferrer"
+                    style={{ padding: "9px 16px", borderRadius: "var(--r2)", background: "var(--card2)", border: "1px solid var(--border2)", color: "var(--blue)", fontSize: 11, fontFamily: "var(--mono)", fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center" }}>
+                    ↗ Polygonscan
+                  </a>
+                </div>
+              </>
+            ) : (
+              <div style={{ color: "var(--text3)", fontSize: 11, lineHeight: 1.7 }}>
+                No blockchain transactions yet for this bond. A TX is written only when the interest rate changes (penalty trigger or recovery).
+                <br /><br />
+                <span style={{ color: "var(--text2)" }}>Use the <strong style={{ color: "var(--blue)" }}>🔗 Blockchain</strong> page in the sidebar for full TX lookup and audit triggering.</span>
+              </div>
+            )}
+          </div>
+
+          {/* Inline TX lookup */}
+          <InlineTxLookup />
         </div>
       )}
 

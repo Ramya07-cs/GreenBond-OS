@@ -194,6 +194,23 @@ def create_bond(data: BondCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(bond)
 
+    # Register on-chain so the smart contract knows about this bond.
+    # recordRateChange will revert with "bond not registered" if we skip this.
+    # Non-fatal — if blockchain is unavailable the bond is still created in DB.
+    try:
+        from services.blockchain import blockchain_service
+        tx = blockchain_service.register_bond(bond.id, float(bond.base_rate))
+        if tx:
+            logger.info(f"Bond {bond.id} registered on-chain: {tx['tx_hash']}")
+        else:
+            logger.warning(
+                f"Bond {bond.id} created in DB but NOT registered on-chain "
+                f"(blockchain unavailable). Rate change TXs will fail until "
+                f"the bond is registered. Re-register via /api/blockchain/register/{bond.id}"
+            )
+    except Exception as e:
+        logger.error(f"Blockchain registration failed for {bond.id}: {e}")
+
     # Invalidate list cache so new bond appears immediately
     redis_client.delete("bonds:list", "dashboard:summary")
 

@@ -111,6 +111,25 @@ def catchup_missed_audits() -> dict:
         )
 
     return summary
+    
+# ── Celery task wrapper ────────────────────────────────────────────────────────
+# Wrapping catchup_missed_audits as a Celery task allows Celery Beat to schedule
+# the IGNORED-day retry automatically (e.g. at 14:00 daily) without requiring
+# a server restart. The plain function is still used by main.py at startup.
+
+from tasks.celery_app import celery_app  # noqa: E402 — import after function def
+
+
+@celery_app.task(name="tasks.catchup.retry_ignored_audits")
+def retry_ignored_audits():
+    logger.info("[Catchup] Scheduled retry-ignored-audits task started.")
+    summary = catchup_missed_audits()
+    logger.info(
+        f"[Catchup] Scheduled retry complete — "
+        f"{summary['total_missed_days']} day(s) queued across "
+        f"{len(summary['queued'])} bond(s)."
+    )
+    return summary
 
 
 def _find_missed_dates(
@@ -120,7 +139,7 @@ def _find_missed_dates(
     cutoff: date,
 ) -> list[date]:
 
-    # Find the last audited date for this bond
+    # Find the last audited date for this bond (any verdict including IGNORED)
     last_audited: Optional[date] = (
         db.query(func.max(AuditLog.date))
         .filter(AuditLog.bond_id == bond_id)
@@ -135,8 +154,9 @@ def _find_missed_dates(
             f"Will process from {cutoff}."
         )
     elif last_audited >= up_to:
-        # Already audited through yesterday — nothing to do
-        return []
+        # Already audited through yesterday — but may still have IGNORED days
+        # to retry (see below). Set start_from to cutoff so we scan the range.
+        start_from = cutoff
     else:
         # Start checking from the day after the last known audit
         start_from = last_audited + timedelta(days=1)
@@ -145,25 +165,51 @@ def _find_missed_dates(
     start_from = max(start_from, cutoff)
 
     if start_from > up_to:
-        return []
+        start_from = cutoff  # still need to scan for IGNORED retries
 
-    # Fetch all dates that DO have audit records in this range (fast set lookup)
-    existing_dates: set[date] = set(
+    # NASA POWER has a 5–6 day processing lag. Any IGNORED audit written within
+    # the last 7 days may now have GHI data available — re-queue those dates.
+    nasa_lag_cutoff = date.today() - timedelta(days=7)
+    retriable_ignored: set[date] = set(
         row[0]
         for row in db.query(AuditLog.date)
         .filter(
             AuditLog.bond_id == bond_id,
-            AuditLog.date >= start_from,
+            AuditLog.verdict == "IGNORED",
+            AuditLog.date >= max(cutoff, nasa_lag_cutoff),
             AuditLog.date <= up_to,
         )
         .all()
     )
 
-    # Walk the full date range and collect anything missing
+    if retriable_ignored:
+        logger.info(
+            f"[Catchup] {bond_id}: {len(retriable_ignored)} IGNORED day(s) within "
+            f"NASA lag window — will retry: {sorted(retriable_ignored)}"
+        )
+
+    # Fetch all dates that have a COMPLIANT or PENALTY record (truly done)
+    completed_dates: set[date] = set(
+        row[0]
+        for row in db.query(AuditLog.date)
+        .filter(
+            AuditLog.bond_id == bond_id,
+            AuditLog.verdict.in_(["COMPLIANT", "PENALTY"]),
+            AuditLog.date >= max(start_from, cutoff),
+            AuditLog.date <= up_to,
+        )
+        .all()
+    )
+
+    # Walk the full range from cutoff: collect missing dates + retriable IGNORED
+    scan_from = max(cutoff, start_from)
+    # Also scan back to nasa_lag_cutoff to catch IGNORED days in the lag window
+    scan_from = min(scan_from, max(cutoff, nasa_lag_cutoff))
+
     missed = []
-    current = start_from
+    current = scan_from
     while current <= up_to:
-        if current not in existing_dates:
+        if current not in completed_dates:
             missed.append(current)
         current += timedelta(days=1)
 

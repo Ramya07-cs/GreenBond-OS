@@ -76,6 +76,24 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
     """Run the complete audit pipeline for a single bond."""
     import asyncio
 
+    # Skip if a completed (COMPLIANT or PENALTY) audit already exists for this+date. 
+    # This makes the task idempotent — safe to re-run during catchup
+    # or if Beat fires twice without triggering a duplicate write.
+    already_done = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.bond_id == bond.id,
+            AuditLog.date == audit_date,
+            AuditLog.verdict.in_(["COMPLIANT", "PENALTY"]),
+        )
+        .first()
+    )
+    if already_done:
+        logger.info(
+            f"  {bond.id} on {audit_date}: already has {already_done.verdict} record — skipping."
+        )
+        return
+
     logger.info(f"Auditing {bond.id} ({bond.name})")
 
     # ── Step 1: Fetch NASA GHI (Redis-cached) ────────────────────────────────

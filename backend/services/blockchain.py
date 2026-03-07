@@ -86,7 +86,54 @@ class BlockchainService:
         except Exception:
             return None
 
-    # ── Core write ────────────────────────────────────────────────────────────
+    # ── Bond registration ─────────────────────────────────────────────────────
+
+    def register_bond(self, bond_id: str, base_rate: float) -> Optional[dict]:
+        if not self._ensure_connected():
+            logger.warning(
+                f"[Blockchain] Skipping registerBond for {bond_id} — not connected. "
+                f"Bond will be stored in DB only."
+            )
+            return None
+
+        try:
+            from web3 import Web3
+
+            base_bp = int(base_rate * 100)  # 5.0% → 500 basis points
+            nonce = self._w3.eth.get_transaction_count(self._account.address)
+            tx = self._contract.functions.registerBond(
+                bond_id, base_bp,
+            ).build_transaction({
+                "from": self._account.address,
+                "nonce": nonce,
+                "gas": 150000,
+                "gasPrice": self._w3.eth.gas_price,
+                "chainId": 80002,  # Polygon Amoy Testnet
+            })
+
+            signed = self._w3.eth.account.sign_transaction(tx, settings.WALLET_PRIVATE_KEY)
+            tx_hash = self._w3.eth.send_raw_transaction(signed.raw_transaction)
+            logger.info(f"[Blockchain] registerBond TX submitted: {tx_hash.hex()} for {bond_id}")
+
+            receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            result = {
+                "tx_hash": receipt["transactionHash"].hex(),
+                "block_number": receipt["blockNumber"],
+                "gas_used": receipt["gasUsed"],
+                "status": "CONFIRMED" if receipt["status"] == 1 else "FAILED",
+            }
+            logger.info(
+                f"[Blockchain] registerBond confirmed: {result['tx_hash']} "
+                f"Block #{result['block_number']} Gas: {result['gas_used']}"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"[Blockchain] registerBond failed for {bond_id}: {e}")
+            self._w3 = None  # Allow reconnect retry on next call
+            return None
+
+    # ── Rate change write ─────────────────────────────────────────────────────
 
     def write_rate_change(
         self,
@@ -112,12 +159,11 @@ class BlockchainService:
             from web3 import Web3
 
             data_hash = Web3.keccak(text=json.dumps(pr_data, default=str))
-            prev_bp = int(previous_rate * 100)
-            new_bp = int(new_rate * 100)
+            new_bp = int(new_rate * 100)  # e.g. 7.5% → 750 basis points
 
             nonce = self._w3.eth.get_transaction_count(self._account.address)
             tx = self._contract.functions.recordRateChange(
-                bond_id, prev_bp, new_bp, trigger_type, data_hash,
+                bond_id, new_bp, trigger_type, data_hash,
             ).build_transaction({
                 "from": self._account.address,
                 "nonce": nonce,
@@ -148,6 +194,8 @@ class BlockchainService:
             self._w3 = None  # Allow reconnect retry on next call
             return None
 
+    # ── Read functions ────────────────────────────────────────────────────────
+
     def get_transaction(self, tx_hash: str) -> Optional[dict]:
         if not self._ensure_connected():
             return None
@@ -166,6 +214,27 @@ class BlockchainService:
             }
         except Exception as e:
             logger.error(f"[Blockchain] Failed to fetch TX {tx_hash}: {e}")
+            return None
+
+    def get_rate_history(self, bond_id: str) -> Optional[list]:
+        if not self._ensure_connected():
+            return None
+        try:
+            raw = self._contract.functions.getRateHistory(bond_id).call()
+            return [
+                {
+                    "timestamp": entry[0],
+                    "bond_id": entry[1],
+                    "previous_rate": entry[2] / 100,   # basis points → percent
+                    "new_rate": entry[3] / 100,
+                    "trigger_type": entry[4],
+                    "data_hash": entry[5].hex(),
+                    "block_number": entry[6],
+                }
+                for entry in raw
+            ]
+        except Exception as e:
+            logger.error(f"[Blockchain] getRateHistory failed for {bond_id}: {e}")
             return None
 
 

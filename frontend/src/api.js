@@ -23,6 +23,8 @@ export const fetchAuditLogs = (params) =>
   api.get("/api/audit", { params }).then((r) => r.data);
 export const triggerAudit = (date) =>
   api.post("/api/audit/run", null, { params: { target_date: date } }).then((r) => r.data);
+export const triggerCatchup = () =>
+  api.post("/api/audit/catchup").then((r) => r.data);
 
 // ── Alerts ─────────────────────────────────────────────────────────────────
 export const fetchAlerts = (params) =>

@@ -26,24 +26,59 @@ class AuditService:
     ) -> AuditLog:
         """Persist a single day's audit record to the database."""
 
-        log = AuditLog(
-            bond_id=bond_id,
-            date=audit_date,
-            nasa_ghi=pr_result.nasa_ghi if pr_result.nasa_ghi else None,
-            actual_kwh=pr_result.actual_kwh if pr_result.actual_kwh else None,
-            expected_kwh=pr_result.expected_kwh,
-            calculated_pr=pr_result.pr if pr_result.verdict != "IGNORED" else None,
-            threshold=0.75,
-            verdict=penalty_decision.verdict,
-            consecutive_penalty=penalty_decision.consecutive_penalty,
-            consecutive_compliant=penalty_decision.consecutive_compliant,
-            rate_before=penalty_decision.previous_rate,
-            rate_after=penalty_decision.new_rate,
-            blockchain_tx_hash=tx_result["tx_hash"] if tx_result else None,
-            block_number=tx_result["block_number"] if tx_result else None,
+        # Guard: if a completed record already exists for this bond+date, never
+        # overwrite it. This makes write_audit_log fully idempotent.
+        completed = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.bond_id == bond_id,
+                AuditLog.date == audit_date,
+                AuditLog.verdict.in_(["COMPLIANT", "PENALTY"]),
+            )
+            .first()
+        )
+        if completed:
+            logger.info(
+                f"Skipping write for {bond_id} {audit_date} — "
+                f"completed {completed.verdict} record already exists."
+            )
+            return completed
+
+        # Upsert: if an IGNORED record already exists for this bond+date,
+        # overwrite it now that we have real data (NASA lag resolved).
+        existing = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.bond_id == bond_id,
+                AuditLog.date == audit_date,
+                AuditLog.verdict == "IGNORED",
+            )
+            .first()
         )
 
-        db.add(log)
+        if existing:
+            logger.info(
+                f"Overwriting IGNORED audit for {bond_id} {audit_date} "
+                f"with new verdict {penalty_decision.verdict}"
+            )
+            log = existing
+        else:
+            log = AuditLog(bond_id=bond_id, date=audit_date)
+            db.add(log)
+
+        log.nasa_ghi = pr_result.nasa_ghi if pr_result.nasa_ghi else None
+        log.actual_kwh = pr_result.actual_kwh if pr_result.actual_kwh else None
+        log.expected_kwh = pr_result.expected_kwh
+        log.calculated_pr = pr_result.pr if pr_result.verdict != "IGNORED" else None
+        log.threshold = 0.75
+        log.verdict = penalty_decision.verdict
+        log.consecutive_penalty = penalty_decision.consecutive_penalty
+        log.consecutive_compliant = penalty_decision.consecutive_compliant
+        log.rate_before = penalty_decision.previous_rate
+        log.rate_after = penalty_decision.new_rate
+        log.blockchain_tx_hash = tx_result["tx_hash"] if tx_result else None
+        log.block_number = tx_result["block_number"] if tx_result else None
+
         db.flush()  # Get the ID without committing
 
         logger.info(

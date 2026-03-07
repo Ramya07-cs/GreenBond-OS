@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { fetchSystemHealth } from "../api";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { fetchSystemHealth, triggerCatchup } from "../api";
 
 export default function SystemHealth() {
   const { data: health, isLoading, refetch } = useQuery({
@@ -113,11 +114,67 @@ export default function SystemHealth() {
         </div>
       )}
 
+      {/* ── Catchup Action ── */}
+      <CatchupPanel />
+
       {/* Cached indicator */}
       {health?.cached && (
         <div style={{ padding: "8px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--text3)", fontFamily: "var(--mono)" }}>
           ⚡ Showing cached result — refreshes automatically every 60s on the server
         </div>
+      )}
+    </div>
+  );
+}
+
+function CatchupPanel() {
+  const [result, setResult] = useState(null);
+
+  const mutation = useMutation({
+    mutationFn: triggerCatchup,
+    onSuccess: (data) => setResult({ ok: true, data }),
+    onError: (err) => setResult({ ok: false, msg: err?.response?.data?.detail || "Catchup failed." }),
+  });
+
+  return (
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>
+        🔁 Catchup Audit
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 14, lineHeight: 1.7 }}>
+        Scans all active bonds for missed audit days (up to 30 days back) and queues individual tasks for each gap.
+        Safe to re-run — already-audited days are skipped automatically.
+      </div>
+
+      {result?.ok ? (
+        <div style={{ padding: "14px 16px", background: "var(--green-dim)", border: "1px solid rgba(0,230,118,.2)", borderRadius: "var(--r2)", marginBottom: 10 }}>
+          <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700, marginBottom: 10 }}>✅ Catchup Complete</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+            {[
+              ["Bonds Checked", result.data.bonds_checked],
+              ["Days Queued", result.data.total_missed_days_queued],
+              ["Tasks Queued", result.data.queued?.length ?? 0],
+              ["Skipped (too old)", result.data.skipped_too_old ?? 0],
+            ].map(([l, v]) => (
+              <div key={l} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "8px 10px", textAlign: "center" }}>
+                <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>{l}</div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 18, fontWeight: 800, color: "var(--cyan)" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setResult(null)} style={{ marginTop: 10, fontSize: 9, background: "none", border: "none", color: "var(--text3)", cursor: "pointer", fontFamily: "var(--mono)" }}>
+            Run Again ↺
+          </button>
+        </div>
+      ) : (
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending}
+          style={{ padding: "9px 20px", background: "var(--amber)", border: "none", color: "#000", fontWeight: 700, fontSize: 11, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)", opacity: mutation.isPending ? .6 : 1 }}>
+          {mutation.isPending ? "⏳ Running Catchup..." : "🔁 Run Catchup Now"}
+        </button>
+      )}
+
+      {result?.ok === false && (
+        <div style={{ marginTop: 8, fontSize: 10, color: "var(--red)" }}>⚠ {result.msg}</div>
       )}
     </div>
   );
