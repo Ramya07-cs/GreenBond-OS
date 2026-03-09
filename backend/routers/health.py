@@ -64,16 +64,46 @@ def system_health(db: Session = Depends(get_db)):
     except Exception as e:
         services["celery_worker"] = {"status": "ERROR", "ok": False, "error": str(e)}
 
-    # Celery Beat — check if beat schedule file was written recently
+    # Celery Beat — check the schedule file in multiple candidate locations.
+    # Beat writes celerybeat-schedule to its CWD (typically backend/) not /tmp.
+    # We also write a Redis heartbeat key from the beat schedule itself as a
+    # more reliable signal — if the key exists and is fresh, Beat is alive.
     try:
         import os
-        beat_db = "/tmp/celerybeat-schedule"
-        beat_alive = os.path.exists(beat_db) and (
-            time.time() - os.path.getmtime(beat_db) < 3600
-        )
+
+        # ── Method 1: Redis heartbeat (most reliable) ─────────────────────────
+        # Beat can be configured to write a heartbeat key; if present and fresh
+        # (written within the last 2 hours), Beat is confirmed running.
+        beat_redis_key = "celerybeat:heartbeat"
+        redis_hb = redis_client.get(beat_redis_key)
+        beat_alive_redis = redis_hb is not None
+
+        # ── Method 2: Schedule file in common locations ───────────────────────
+        # Beat writes celerybeat-schedule(.db) to its working directory.
+        candidate_paths = [
+            "celerybeat-schedule",            # backend/ when run from there
+            "celerybeat-schedule.db",
+            "/tmp/celerybeat-schedule",       # some deployments override this
+            "/tmp/celerybeat-schedule.db",
+            "../celerybeat-schedule",
+        ]
+        beat_alive_file = False
+        beat_file_age_s = None
+        for path in candidate_paths:
+            if os.path.exists(path):
+                age_s = time.time() - os.path.getmtime(path)
+                # File must exist and be from this server session (< 24h)
+                if age_s < 86400:
+                    beat_alive_file = True
+                    beat_file_age_s = round(age_s)
+                    break
+
+        beat_alive = beat_alive_redis or beat_alive_file
         services["celery_beat"] = {
             "status": "RUNNING" if beat_alive else "OFFLINE",
             "ok": beat_alive,
+            **({"heartbeat": "redis"} if beat_alive_redis else {}),
+            **({"schedule_file_age_s": beat_file_age_s} if beat_alive_file else {}),
         }
     except Exception as e:
         services["celery_beat"] = {"status": "ERROR", "ok": False, "error": str(e)}

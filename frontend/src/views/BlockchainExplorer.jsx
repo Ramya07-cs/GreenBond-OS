@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchBlockchainStatus, triggerAudit, registerBondOnChain, setRegistrationTx } from "../api";
+import { fetchBlockchainStatus, registerBondOnChain, setRegistrationTx } from "../api";
 import { useBonds } from "../hooks/useBonds";
 
 const inputStyle = {
@@ -308,8 +308,6 @@ function RegisterPanel({ bonds }) {
 export default function BlockchainExplorer() {
   const [tab, setTab] = useState("status");
   const queryClient = useQueryClient();
-  const [auditDate, setAuditDate] = useState(new Date().toISOString().split("T")[0]);
-  const [auditResult, setAuditResult] = useState(null);
   const { data: bonds = [] } = useBonds();
 
   const { data: status, isFetching: statusLoading, refetch: refetchStatus } = useQuery({
@@ -318,20 +316,9 @@ export default function BlockchainExplorer() {
     refetchInterval: 15000,
   });
 
-  const auditMutation = useMutation({
-    mutationFn: ({ date }) => triggerAudit(date),
-    onSuccess: (data) => {
-      setAuditResult({ ok: true, data });
-      // Refetch bonds after a short delay so PR Today + snapshot update when audit completes
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["bonds"] }), 3000);
-    },
-    onError: (err) => setAuditResult({ ok: false, message: err?.response?.data?.detail || "Audit trigger failed." }),
-  });
-
   const tabs = [
     ["status",   "🔗 Network Status"],
-    ["register", "📋 Register Bonds"],
-    ["audit",    "⚡ Trigger Audit"],
+    ["register", "🔗 On-Chain Proof"],
   ];
   const today = new Date().toISOString().split("T")[0];
 
@@ -424,97 +411,6 @@ export default function BlockchainExplorer() {
       {/* ── Register Bonds ───────────────────────────────────────────── */}
       {tab === "register" && <RegisterPanel bonds={bonds} />}
 
-      {/* ── Trigger Audit ────────────────────────────────────────────── */}
-      {tab === "audit" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ padding: "10px 14px", background: "var(--amber-dim)", border: "1px solid rgba(255,179,0,.25)", borderRadius: "var(--r2)", fontSize: 11, color: "var(--text2)", lineHeight: 1.7 }}>
-            ⚡ <strong style={{ color: "var(--amber)" }}>Manual Audit:</strong> Triggers the daily audit task immediately for a specific date.
-            The audit fetches NASA GHI data, calculates PR, and writes penalty/recovery events to the Polygon blockchain.
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16 }}>⚡ Trigger Audit</div>
-
-              {auditResult ? (
-                <div style={{ padding: 16, background: auditResult.ok ? "var(--green-dim)" : "var(--red-dim)", border: `1px solid ${auditResult.ok ? "rgba(0,230,118,.2)" : "rgba(255,61,61,.2)"}`, borderRadius: "var(--r2)" }}>
-                  <div style={{ fontSize: 14, marginBottom: 8 }}>{auditResult.ok ? "✅" : "❌"}</div>
-                  <div style={{ color: auditResult.ok ? "var(--green)" : "var(--red)", fontWeight: 700, marginBottom: 8 }}>
-                    {auditResult.ok ? "Audit Queued!" : "Audit Failed"}
-                  </div>
-                  {auditResult.ok && <JsonBlock data={auditResult.data} />}
-                  {!auditResult.ok && <div style={{ fontSize: 11, color: "var(--text2)" }}>{auditResult.message}</div>}
-                  <button onClick={() => setAuditResult(null)} style={{ marginTop: 12, padding: "7px 14px", background: "var(--card2)", border: "1px solid var(--border2)", color: "var(--text)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 10, fontFamily: "var(--mono)" }}>
-                    Run Another
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", fontWeight: 600, marginBottom: 5 }}>Target Date</div>
-                    <input type="date" value={auditDate} max={today}
-                      onChange={e => setAuditDate(e.target.value)} style={inputStyle} />
-                    <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 4 }}>
-                      Audits all active bonds for the selected date. Defaults to today.
-                    </div>
-                  </div>
-
-                  <div style={{ padding: "10px 12px", background: "var(--void)", border: "1px solid var(--border)", borderRadius: "var(--r2)" }}>
-                    <div style={{ fontSize: 9, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 6 }}>What this does</div>
-                    {[
-                      "Fetches NASA POWER GHI for each bond's lat/lng",
-                      "Computes Performance Ratio = actual_kwh / expected_kwh",
-                      "Applies COMPLIANT / PENALTY verdict",
-                      "Triggers blockchain event if threshold crossed",
-                      "Updates current_rate on the bond",
-                    ].map((s, i) => (
-                      <div key={i} style={{ fontSize: 10, color: "var(--text2)", marginBottom: 4, display: "flex", gap: 8 }}>
-                        <span style={{ color: "var(--green)" }}>→</span> {s}
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    onClick={() => auditMutation.mutate({ date: auditDate })}
-                    disabled={auditMutation.isPending}
-                    style={{ padding: "10px 20px", borderRadius: "var(--r2)", background: "var(--amber)", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)", transition: "opacity .2s" }}
-                  >
-                    {auditMutation.isPending ? "⏳ Queuing Audit..." : `⚡ Run Audit for ${auditDate}`}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>📊 Bond Audit Snapshot</div>
-              {bonds.length === 0 ? (
-                <div style={{ padding: 24, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>No bonds registered.</div>
-              ) : bonds.map(b => (
-                <div key={b.id} style={{ padding: "10px 12px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", marginBottom: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{b.name}</div>
-                    <div style={{ fontSize: 9, padding: "2px 7px", borderRadius: 3, background: b.status === "ACTIVE" ? "var(--green-dim)" : "var(--red-dim)", color: b.status === "ACTIVE" ? "var(--green)" : "var(--red)", fontFamily: "var(--mono)", fontWeight: 700 }}>
-                      {b.status}
-                    </div>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                    {[
-                      ["PR Today", b.today_pr != null ? `${(b.today_pr * 100).toFixed(1)}%` : "—"],
-                      ["Rate", `${Number(b.current_rate).toFixed(2)}%`],
-                      ["Penalty Days", b.consecutive_penalty ?? 0],
-                    ].map(([k, v]) => (
-                      <div key={k} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "5px 8px" }}>
-                        <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase" }}>{k}</div>
-                        <div style={{ fontSize: 11, color: "var(--text)", fontFamily: "var(--mono)", fontWeight: 600 }}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

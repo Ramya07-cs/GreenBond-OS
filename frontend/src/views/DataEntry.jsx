@@ -71,6 +71,8 @@ function ManualPanel({ bonds }) {
 
   const missingSet = new Set((missingData?.missing_days || []).map(d => parseInt(d.split("-")[2])));
   const submittedSet = new Set((missingData?.submitted_dates || []).map(d => parseInt(d.split("-")[2])));
+  const auditedMap = missingData?.audited_dates || {};
+  const selectedDateAudit = auditedMap[form.date];
   const bondCreatedDay = missingData?.bond_created
     ? (new Date(missingData.bond_created).getMonth() === today.getMonth() &&
        new Date(missingData.bond_created).getFullYear() === today.getFullYear())
@@ -105,6 +107,13 @@ function ManualPanel({ bonds }) {
             </Field>
             <Field n={2} label="Reporting Date">
               <input type="date" value={form.date} min={minDate} max={maxDate} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inputStyle} />
+            {selectedDateAudit && (
+              <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(255,170,0,.1)", border: "1px solid rgba(255,170,0,.35)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)", lineHeight: 1.6 }}>
+                ⚠ {form.date} is already audited (<strong>{selectedDateAudit}</strong>).
+                Updating production data will overwrite the submitted kWh but <strong>will not change the audit verdict</strong> — the {selectedDateAudit} result is locked by the idempotency guard.
+                To re-audit this date, use <strong>Blockchain Explorer → Trigger Audit</strong>.
+              </div>
+            )}
             </Field>
             <Field n={3} label="Energy Produced (kWh)">
               <input type="number" placeholder="e.g. 24800" value={form.kwh} onChange={e => setForm(f => ({ ...f, kwh: e.target.value }))} style={inputStyle} />
@@ -189,6 +198,14 @@ function IoTPanel({ bonds }) {
   const [expandedBond, setExpandedBond] = useState(null);
   const selectedBond = bonds.find(b => b.id === form.bond_id);
   const minDate = selectedBond?.created_at ? selectedBond.created_at.split("T")[0] : undefined;
+  const iotToday = new Date();
+  const { data: iotMissingData } = useQuery({
+    queryKey: ["missing", form.bond_id, iotToday.getFullYear(), iotToday.getMonth() + 1],
+    queryFn: () => fetchMissingDays(form.bond_id, iotToday.getFullYear(), iotToday.getMonth() + 1),
+    enabled: !!form.bond_id,
+  });
+  const iotAuditedMap = iotMissingData?.audited_dates || {};
+  const iotSelectedDateAudit = iotAuditedMap[form.date];
 
   const mutation = useMutation({
     mutationFn: submitIoTEntry,
@@ -230,6 +247,13 @@ function IoTPanel({ bonds }) {
               </Field>
               <Field n={3} label="Production Date">
                 <input type="date" value={form.date} min={minDate} max={maxDate} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inputStyle} />
+                {iotSelectedDateAudit && (
+                  <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(255,170,0,.1)", border: "1px solid rgba(255,170,0,.35)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)", lineHeight: 1.6 }}>
+                    ⚠ {form.date} is already audited (<strong>{iotSelectedDateAudit}</strong>).
+                    Updating production data will overwrite the submitted kWh but <strong>will not change the audit verdict</strong> — the {iotSelectedDateAudit} result is locked by the idempotency guard.
+                    To re-audit this date, use <strong>Blockchain Explorer → Trigger Audit</strong>.
+                  </div>
+                )}
               </Field>
               <Field n={4} label="Energy Generated (kWh)">
                 <input type="number" placeholder="e.g. 24800.0" value={form.kwh} onChange={e => setForm(f => ({ ...f, kwh: e.target.value }))} style={inputStyle} />

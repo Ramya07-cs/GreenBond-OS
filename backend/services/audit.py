@@ -44,24 +44,30 @@ class AuditService:
             )
             return completed
 
-        # Upsert: if an IGNORED record already exists for this bond+date,
-        # overwrite it now that we have real data (NASA lag resolved).
-        existing = (
+        existing_all = (
             db.query(AuditLog)
             .filter(
                 AuditLog.bond_id == bond_id,
                 AuditLog.date == audit_date,
-                AuditLog.verdict == "IGNORED",
             )
-            .first()
+            .order_by(AuditLog.id.asc())
+            .all()
         )
 
-        if existing:
+        if existing_all:
+            # Keep the oldest record, delete all duplicates
+            log = existing_all[0]
+            for duplicate in existing_all[1:]:
+                logger.warning(
+                    f"Deleting duplicate audit record id={duplicate.id} "
+                    f"for {bond_id} {audit_date} (verdict={duplicate.verdict})"
+                )
+                db.delete(duplicate)
+            db.flush()
             logger.info(
-                f"Overwriting IGNORED audit for {bond_id} {audit_date} "
-                f"with new verdict {penalty_decision.verdict}"
+                f"Updating existing audit for {bond_id} {audit_date} "
+                f"(was {log.verdict}) → {penalty_decision.verdict}"
             )
-            log = existing
         else:
             log = AuditLog(bond_id=bond_id, date=audit_date)
             db.add(log)
@@ -133,13 +139,12 @@ class AuditService:
         return bond
 
     def get_last_streaks(self, db: Session, bond_id: str) -> tuple[int, int]:
-        """
-        Retrieve the most recent consecutive penalty and compliant day counts.
-        Returns (consecutive_penalty, consecutive_compliant).
-        """
         last = (
             db.query(AuditLog)
-            .filter(AuditLog.bond_id == bond_id)
+            .filter(
+                AuditLog.bond_id == bond_id,
+                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
+            )
             .order_by(AuditLog.date.desc())
             .first()
         )

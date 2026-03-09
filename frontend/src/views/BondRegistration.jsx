@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { createBond } from "../api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createBond, deleteBond, fixBondRegistration } from "../api";
+import { useBonds } from "../hooks/useBonds";
 
 const inputStyle = {
   background: "var(--input)", border: "1px solid var(--border)",
@@ -35,6 +36,37 @@ const INITIAL = {
 export default function BondRegistration() {
   const [form, setForm] = useState(INITIAL);
   const [result, setResult] = useState(null);
+  const [tab, setTab] = useState("register"); // "register" | "manage"
+  const { data: bonds = [] } = useBonds();
+  const queryClient = useQueryClient();
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // bond.id
+  const [deleteStatus, setDeleteStatus] = useState({});
+  const [fixState, setFixState] = useState({}); // { [bondId]: { open, tx, block, loading, done, error } }
+
+  async function handleDelete(bondId) {
+    setDeleteStatus(s => ({ ...s, [bondId]: "loading" }));
+    try {
+      await deleteBond(bondId);
+      queryClient.invalidateQueries({ queryKey: ["bonds"] });
+      setDeleteStatus(s => ({ ...s, [bondId]: "done" }));
+      setDeleteConfirm(null);
+    } catch (err) {
+      setDeleteStatus(s => ({ ...s, [bondId]: "error" }));
+    }
+  }
+
+  async function handleFixReg(bond) {
+    const f = fixState[bond.id] || {};
+    if (!f.tx?.trim()) return;
+    setFixState(s => ({ ...s, [bond.id]: { ...f, loading: true, error: null } }));
+    try {
+      await fixBondRegistration(bond.id, f.tx.trim(), f.block ? parseInt(f.block) : null);
+      queryClient.invalidateQueries({ queryKey: ["bonds"] });
+      setFixState(s => ({ ...s, [bond.id]: { ...f, loading: false, done: true } }));
+    } catch (err) {
+      setFixState(s => ({ ...s, [bond.id]: { ...f, loading: false, error: "Failed to update registration." } }));
+    }
+  }
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -97,6 +129,95 @@ export default function BondRegistration() {
   }
 
   return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Tab switcher */}
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)" }}>
+        {[["register", "🌿 Register Bond"], ["manage", "⚙ Manage Bonds"]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{
+            padding: "9px 20px", background: "none", border: "none",
+            borderBottom: tab === id ? "2px solid var(--green)" : "2px solid transparent",
+            color: tab === id ? "var(--green)" : "var(--text3)",
+            fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "var(--mono)",
+            letterSpacing: ".06em", transition: "color .2s",
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {tab === "manage" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {bonds.length === 0 && <div style={{ color: "var(--text3)", fontSize: 12, padding: 24, textAlign: "center" }}>No bonds found.</div>}
+          {bonds.map(bond => {
+            const isConfirm = deleteConfirm === bond.id;
+            const dStatus = deleteStatus[bond.id];
+            const f = fixState[bond.id] || {};
+            return (
+              <div key={bond.id} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{bond.name}</div>
+                    <div style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)", marginTop: 3 }}>
+                      {bond.id} · {bond.capacity_kw} kW · {bond.base_rate}% · {bond.status}
+                    </div>
+                    {isConfirm && (
+                      <div style={{ fontSize: 9, color: "var(--amber)", fontFamily: "var(--mono)", marginTop: 4, lineHeight: 1.6 }}>
+                        ⚠ This removes all DB records and cache but the bond ID stays permanently on the blockchain — it cannot be reused for a new bond.
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setFixState(s => ({ ...s, [bond.id]: { ...f, open: !f.open } }))}
+                      style={{ padding: "5px 12px", background: "var(--card2)", border: "1px solid var(--border)", color: "var(--text2)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 10, fontFamily: "var(--mono)" }}>
+                      🔧 Fix Registration
+                    </button>
+                    {!isConfirm ? (
+                      <button onClick={() => setDeleteConfirm(bond.id)}
+                        style={{ padding: "5px 12px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.3)", color: "var(--red)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 10, fontFamily: "var(--mono)", fontWeight: 700 }}>
+                        🗑 Delete
+                      </button>
+                    ) : (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 10, color: "var(--red)", fontFamily: "var(--mono)" }}>Delete all data?</span>
+                        <button onClick={() => handleDelete(bond.id)} disabled={dStatus === "loading"}
+                          style={{ padding: "5px 10px", background: "var(--red)", border: "none", color: "#fff", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 10, fontFamily: "var(--mono)", fontWeight: 700 }}>
+                          {dStatus === "loading" ? "..." : "Yes, Delete"}
+                        </button>
+                        <button onClick={() => setDeleteConfirm(null)}
+                          style={{ padding: "5px 10px", background: "var(--card2)", border: "1px solid var(--border)", color: "var(--text2)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 10, fontFamily: "var(--mono)" }}>
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Fix registration panel */}
+                {f.open && (
+                  <div style={{ marginTop: 12, padding: "12px 14px", background: "rgba(255,179,0,.06)", border: "1px solid rgba(255,179,0,.2)", borderRadius: "var(--r2)" }}>
+                    <div style={{ fontSize: 9, color: "var(--amber)", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 8 }}>Fix On-Chain Registration</div>
+                    {f.done ? (
+                      <div style={{ fontSize: 10, color: "var(--green)", fontFamily: "var(--mono)" }}>✓ Saved successfully</div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <input placeholder="0x TX hash" value={f.tx || ""} onChange={e => setFixState(s => ({ ...s, [bond.id]: { ...f, tx: e.target.value } }))}
+                          style={{ flex: 2, minWidth: 180, padding: "7px 10px", background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 10, outline: "none" }} />
+                        <input placeholder="Block number" value={f.block || ""} onChange={e => setFixState(s => ({ ...s, [bond.id]: { ...f, block: e.target.value } }))}
+                          style={{ flex: 1, minWidth: 120, padding: "7px 10px", background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 10, outline: "none" }} />
+                        <button onClick={() => handleFixReg(bond)} disabled={!f.tx?.trim() || f.loading}
+                          style={{ padding: "7px 14px", background: "var(--amber)", border: "none", color: "#000", fontWeight: 700, fontSize: 10, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)", opacity: !f.tx?.trim() ? 0.4 : 1 }}>
+                          {f.loading ? "..." : "💾 Save"}
+                        </button>
+                        {f.error && <div style={{ width: "100%", fontSize: 9, color: "var(--red)", fontFamily: "var(--mono)" }}>{f.error}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === "register" &&
     <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 16, alignItems: "start" }}>
       {/* Form */}
       <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 20 }}>
@@ -238,6 +359,7 @@ export default function BondRegistration() {
           </div>
         )}
       </div>
+    </div>}
     </div>
   );
 }

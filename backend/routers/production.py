@@ -138,13 +138,28 @@ def get_missing_days(
     submitted = {e.date for e in entries}
     missing = sorted(all_days - submitted)
 
+    # Fetch audited dates (real verdicts, not IGNORED) so frontend can warn on re-entry
+    from models import AuditLog
+    audited_entries = (
+        db.query(AuditLog.date, AuditLog.verdict)
+        .filter(
+            AuditLog.bond_id == bond_id,
+            AuditLog.date >= d(year, month, 1),
+            AuditLog.date <= d(year, month, days_in_month),
+            AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
+        )
+        .all()
+    )
+    audited_dates = {str(e.date): e.verdict for e in audited_entries}
+
     return {
         "bond_id": bond_id,
         "year": year,
         "month": month,
         "missing_days": [str(d) for d in missing],
         "submitted_dates": [str(d) for d in sorted(submitted)],
-        "submitted_days": len(submitted & all_days),  # only count applicable days
+        "audited_dates": audited_dates,
+        "submitted_days": len(submitted & all_days),
         "total_days": len(all_days),
         "bond_created": str(bond_created) if bond_created else None,
     }

@@ -8,6 +8,8 @@ celery_app = Celery(
     include=[
         "tasks.daily_audit",
         "tasks.maturity",       # Bond lifecycle maturity detection
+        "tasks.catchup",        # retry_ignored_audits scheduled task
+        "tasks.beat_schedule",  # write_beat_heartbeat liveness task
     ],
 )
 

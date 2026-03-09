@@ -75,26 +75,29 @@ class BlockchainService:
 
     # ── Status helpers ────────────────────────────────────────────────────────
 
+    def _w3_readonly(self):
+        """Short-timeout Web3 instance for read-only status checks."""
+        from web3 import Web3
+        return Web3(Web3.HTTPProvider(
+            settings.POLYGON_RPC_URL,
+            request_kwargs={"timeout": 5}
+        ))
+
     def is_connected(self) -> bool:
         try:
-            from web3 import Web3
-            w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
-            return w3.is_connected()
+            return self._w3_readonly().is_connected()
         except Exception:
             return False
 
     def get_latest_block(self) -> Optional[int]:
         try:
-            from web3 import Web3
-            w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
-            return w3.eth.block_number
+            return self._w3_readonly().eth.block_number
         except Exception:
             return None
 
     def get_gas_price_gwei(self) -> Optional[float]:
         try:
-            from web3 import Web3
-            w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
+            w3 = self._w3_readonly()
             return round(w3.from_wei(w3.eth.gas_price, "gwei"), 2)
         except Exception:
             return None
@@ -107,7 +110,7 @@ class BlockchainService:
         """
         try:
             from web3 import Web3
-            w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
+            w3 = self._w3_readonly()
             if not w3.is_connected():
                 return None
             # Derive address from private key without needing full _ensure_connected

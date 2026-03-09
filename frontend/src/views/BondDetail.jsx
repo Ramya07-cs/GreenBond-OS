@@ -49,6 +49,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
   // Most recent fully-computed audit — skips IGNORED/PENDING entries
   const latestCompletedAudit = auditData?.logs?.find(l => l.verdict === "COMPLIANT" || l.verdict === "PENALTY");
   const isP = bond.status === "PENALTY";
+  const isM = bond.status === "MATURED";
 
   // Clip all chart series to dates on/after bond registration — no phantom history
   const createdDateStr = bond.created_at ? bond.created_at.split("T")[0] : null;
@@ -156,6 +157,37 @@ export default function BondDetail({ bond: initialBond, onBack }) {
         ))}
       </div>
 
+      {/* ── MATURITY BANNER ── shown across all tabs when bond is matured ── */}
+      {isM && (
+        <div style={{ marginBottom: 16, padding: "16px 20px", background: "rgba(84,110,122,.08)", border: "1px solid rgba(84,110,122,.3)", borderRadius: "var(--r)", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--slate)" }}>
+            🏁 BOND MATURED — {bond.maturity_date}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+            {[
+              { l: "Final Avg PR", v: bond.final_avg_pr ? `${(bond.final_avg_pr * 100).toFixed(1)}%` : "—", c: bond.final_avg_pr >= 0.75 ? "var(--green)" : "var(--red)" },
+              { l: "Total Penalty Days", v: bond.total_penalty_days ?? "—", c: bond.total_penalty_days > 0 ? "var(--red)" : "var(--green)" },
+              { l: "Base Rate", v: `${bond.base_rate}%`, c: "var(--text2)" },
+              { l: "TVL", v: bond.tvl ? `₹${(bond.tvl / 1e7).toFixed(2)} Cr` : "—", c: "var(--cyan)" },
+            ].map(f => (
+              <div key={f.l} style={{ background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "10px 14px", textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 5 }}>{f.l}</div>
+                <div style={{ fontFamily: "var(--display)", fontSize: 18, fontWeight: 800, color: f.c }}>{f.v}</div>
+              </div>
+            ))}
+          </div>
+          {bond.tvl && bond.total_penalty_days > 0 && (
+            <div style={{ fontSize: 10, color: "var(--text3)", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+              💸 Estimated extra interest paid during penalty periods:&nbsp;
+              <span style={{ color: "var(--red)", fontFamily: "var(--mono)", fontWeight: 700 }}>
+                ₹{((bond.tvl * (bond.base_rate * 0.5) / 100 / 365) * bond.total_penalty_days).toFixed(0)}
+              </span>
+              &nbsp;(approx. at penalty rate ×1.5 above base)
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── OVERVIEW ── */}
       {tab === "overview" && (
         <div>
@@ -214,7 +246,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                   <defs><linearGradient id="prg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--green)" stopOpacity={0.25}/><stop offset="95%" stopColor="var(--green)" stopOpacity={0}/></linearGradient></defs>
                   <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" />
                   <XAxis dataKey="day" tick={{ fill: "#455A64", fontSize: 9 }} tickLine={false} interval={9} axisLine={{ stroke: "rgba(255,255,255,0.06)" }} />
-                  <YAxis domain={[0.4, 1.05]} tick={{ fill: "#455A64", fontSize: 9 }} axisLine={false} tickFormatter={v => `${(v*100).toFixed(0)}%`} width={36} />
+                  <YAxis domain={([min]) => [Math.min(min * 0.9, 0), 1.1]} tick={{ fill: "#455A64", fontSize: 9 }} axisLine={false} tickFormatter={v => `${(v*100).toFixed(0)}%`} width={36} />
                   <Tooltip content={<CT />} />
                   <ReferenceLine y={0.75} stroke="var(--red)" strokeDasharray="4 3" strokeOpacity={0.6} label={{ value: "75% Threshold", fill: "var(--red)", fontSize: 9, position: "insideTopRight" }} />
                   {perfSeries.filter(p => p.verdict === "PENALTY").map((p, i) => <ReferenceDot key={i} x={p.day} y={p.pr} r={3} fill="var(--red)" stroke="none" />)}
@@ -238,8 +270,8 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                   <XAxis dataKey="day" tick={{ fill: "#455A64", fontSize: 9 }} tickLine={false} interval={9} axisLine={{ stroke: "rgba(255,255,255,0.06)" }} />
                   <YAxis tick={{ fill: "#455A64", fontSize: 9 }} axisLine={false} unit=" kWh" width={48} />
                   <Tooltip content={<CT />} />
-                  <Area type="monotone" dataKey="predicted" name="NASA Predicted" stroke="var(--blue)" fill="url(#pg3)" strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
-                  <Area type="monotone" dataKey="actual" name="Actual kWh" stroke="var(--green)" fill="url(#ag2)" strokeWidth={2} dot={false} />
+                  <Area type="linear" dataKey="predicted" name="NASA Predicted" stroke="var(--blue)" fill="url(#pg3)" strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+                  <Area type="linear" dataKey="actual" name="Actual kWh" stroke="var(--green)" fill="url(#ag2)" strokeWidth={2} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>

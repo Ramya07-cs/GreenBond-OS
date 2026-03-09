@@ -1,68 +1,101 @@
 export default function StreakTracker({ bond }) {
   const isP = bond.status === "PENALTY";
-  const streakTarget = 3;
-  const recoveryTarget = 7;
+  const streakTarget   = bond.penalty_days_threshold  ?? 3;
+  const recoveryTarget = bond.recovery_days_threshold ?? 7;
+
+  const penaltyDays   = bond.consecutive_penalty  ?? 0;
+  const compliantDays = bond.consecutive_compliant ?? 0;
+
+  const penaltyFill = Math.min(penaltyDays, streakTarget);
+
+  const compliantBarLength = isP ? recoveryTarget : Math.max(compliantDays, 7);
+  const compliantFill      = isP ? Math.min(compliantDays, recoveryTarget) : compliantDays;
+
+  // Badge shows the dominant state:
+  // - penalty days > 0 and not yet in PENALTY status → "approaching penalty"
+  // - PENALTY status → "penalty active"
+  // - compliant with 0 penalty days → just show compliant count (skip if 0)
+  const showPenaltyBadge = isP || penaltyDays > 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {isP ? (
-        <>
-          <div style={{
-            padding: "10px 14px", background: "var(--red-dim)",
-            borderRadius: "var(--r2)", border: "1px solid rgba(255,61,61,.2)",
-          }}>
-            <div style={{ fontSize: 10, color: "var(--red)", fontWeight: 700, letterSpacing: ".08em", marginBottom: 4 }}>
-              ⚠ PENALTY STREAK
-            </div>
-            <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: "var(--red)" }}>
-              {bond.consecutive_penalty}/{streakTarget} days triggered
-            </div>
-          </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-          <div>
-            <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", marginBottom: 6, textTransform: "uppercase" }}>
-              Recovery Progress ({bond.consecutive_compliant}/{recoveryTarget} days)
-            </div>
-            <div style={{ display: "flex", gap: 5 }}>
-              {Array.from({ length: recoveryTarget }).map((_, i) => (
-                <div key={i} style={{
-                  flex: 1, height: 7, borderRadius: 3,
-                  background: i < bond.consecutive_compliant
-                    ? "var(--cyan)" : "var(--border)",
-                  boxShadow: i < bond.consecutive_compliant ? "0 0 8px rgba(0,188,212,.4)" : "none",
-                  transition: "all .4s",
-                }} />
-              ))}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text2)", marginTop: 8, lineHeight: 1.6 }}>
-              🌿 Need <strong style={{ color: "var(--cyan)" }}>{recoveryTarget - bond.consecutive_compliant} more days</strong> above 75% to restore base rate
-            </div>
+      {/* ── Status badge — only shown when meaningful ── */}
+      {(showPenaltyBadge || compliantDays > 0) && (
+        <div style={{
+          padding: "10px 14px",
+          background: isP ? "var(--red-dim)" : "var(--green-dim)",
+          borderRadius: "var(--r2)",
+          border: `1px solid ${isP ? "rgba(255,61,61,.2)" : "rgba(0,230,118,.2)"}`,
+        }}>
+          <div style={{ fontSize: 10, color: isP ? "var(--red)" : "var(--green)", fontWeight: 700, letterSpacing: ".08em", marginBottom: 4 }}>
+            {isP ? "⚠ PENALTY ACTIVE" : penaltyDays > 0 ? "⚠ APPROACHING PENALTY" : "✅ COMPLIANT STREAK"}
           </div>
-        </>
-      ) : (
-        <>
-          <div style={{
-            padding: "10px 14px", background: "var(--green-dim)",
-            borderRadius: "var(--r2)", border: "1px solid rgba(0,230,118,.2)",
-          }}>
-            <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700, letterSpacing: ".08em", marginBottom: 4 }}>
-              ✅ COMPLIANT STREAK
-            </div>
-            <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: "var(--green)" }}>
-              {bond.consecutive_compliant} days above threshold
-            </div>
+          <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: isP ? "var(--red)" : penaltyDays > 0 ? "var(--amber)" : "var(--green)" }}>
+            {isP
+              ? `${penaltyDays}/${streakTarget} days triggered`
+              : penaltyDays > 0
+                ? `${penaltyDays}/${streakTarget} penalty days`
+                : `${compliantDays} day${compliantDays !== 1 ? "s" : ""} above threshold`}
           </div>
-          <div style={{ display: "flex", gap: 5 }}>
-            {Array.from({ length: Math.min(bond.consecutive_compliant, 14) || 14 }).map((_, i) => (
+        </div>
+      )}
+
+      {/* ── Penalty streak bar ── */}
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase" }}>🔴 Penalty Streak</div>
+          <div style={{ fontSize: 9, fontFamily: "var(--mono)", color: penaltyDays > 0 ? "var(--red)" : "var(--text3)", fontWeight: 700 }}>
+            {penaltyDays} / {streakTarget}
+            <span style={{ color: "var(--text3)", fontWeight: 400, marginLeft: 6 }}>
+              {isP ? "· rate hiked" : penaltyDays === 0 ? "· clear" : `· ${streakTarget - penaltyDays} more to hike`}
+            </span>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 5 }}>
+          {Array.from({ length: streakTarget }).map((_, i) => (
+            <div key={i} style={{
+              flex: 1, height: 7, borderRadius: 3,
+              background: i < penaltyFill ? "var(--red)" : "var(--border)",
+              boxShadow: i < penaltyFill ? "0 0 8px rgba(255,61,61,.4)" : "none",
+              transition: "all .4s",
+            }} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Compliant / recovery bar ── */}
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase" }}>
+            {isP ? "🌿 Recovery Progress" : "✅ Compliant Streak"}
+          </div>
+          <div style={{ fontSize: 9, fontFamily: "var(--mono)", color: compliantDays > 0 ? (isP ? "var(--cyan)" : "var(--green)") : "var(--text3)", fontWeight: 700 }}>
+            {isP ? `${compliantDays} / ${recoveryTarget}` : `${compliantDays} day${compliantDays !== 1 ? "s" : ""}`}
+            {isP && (
+              <span style={{ color: "var(--text3)", fontWeight: 400, marginLeft: 6 }}>
+                · {compliantDays >= recoveryTarget ? "restores next audit" : `${recoveryTarget - compliantDays} more to recover`}
+              </span>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 5 }}>
+          {Array.from({ length: compliantBarLength }).map((_, i) => {
+            const filled = i < compliantFill;
+            const color  = isP ? "var(--cyan)" : "var(--green)";
+            const glow   = isP ? "rgba(0,188,212,.4)" : "rgba(0,230,118,.35)";
+            return (
               <div key={i} style={{
                 flex: 1, height: 7, borderRadius: 3,
-                background: i < bond.consecutive_compliant ? "var(--green)" : "var(--border)",
-                boxShadow: i < bond.consecutive_compliant ? "0 0 8px var(--green-glow)" : "none",
+                background: filled ? color : "var(--border)",
+                boxShadow: filled ? `0 0 8px ${glow}` : "none",
+                transition: "all .4s",
               }} />
-            ))}
-          </div>
-        </>
-      )}
+            );
+          })}
+        </div>
+      </div>
+
     </div>
   );
 }

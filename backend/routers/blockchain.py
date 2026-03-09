@@ -6,12 +6,24 @@ router = APIRouter(prefix="/api/blockchain", tags=["blockchain"])
 
 @router.get("/status")
 def get_blockchain_status():
-    """Return current Polygon node connection status including wallet balance."""
+    """Return current Polygon node connection status. All RPC calls use 5s timeout."""
+    import concurrent.futures
     from config import settings
-    connected = blockchain_service.is_connected()
-    block = blockchain_service.get_latest_block()
-    gas = blockchain_service.get_gas_price_gwei()
-    balance = blockchain_service.get_wallet_balance_matic() if connected else None
+
+    def _fetch_status():
+        connected = blockchain_service.is_connected()
+        if not connected:
+            return False, None, None, None
+        block = blockchain_service.get_latest_block()
+        gas = blockchain_service.get_gas_price_gwei()
+        balance = blockchain_service.get_wallet_balance_matic()
+        return connected, block, gas, balance
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor() as ex:
+            connected, block, gas, balance = ex.submit(_fetch_status).result(timeout=8)
+    except Exception:
+        connected, block, gas, balance = False, None, None, None
     contract = settings.CONTRACT_ADDRESS
     contract_configured = bool(contract and contract != "0xYOUR_DEPLOYED_CONTRACT")
     balance_low = (

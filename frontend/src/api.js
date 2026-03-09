@@ -53,6 +53,16 @@ export const setRegistrationTx = (bondId, txHash, blockNumber = null) => {
   return api.patch(`/api/blockchain/register/${bondId}/tx`, null, { params }).then((r) => r.data);
 };
 
+// ── Bond Management ───────────────────────────────────────────────────────
+export const deleteBond = (bondId) =>
+  api.delete(`/api/bonds/${bondId}`).then((r) => r.data);
+
+export const fixBondRegistration = (bondId, txHash, blockNumber = null) => {
+  const params = { tx_hash: txHash };
+  if (blockNumber) params.block_number = blockNumber;
+  return api.patch(`/api/bonds/${bondId}/registration`, null, { params }).then((r) => r.data);
+};
+
 // ── Health ─────────────────────────────────────────────────────────────────
 export const fetchSystemHealth = () =>
   api.get("/api/health").then((r) => r.data);

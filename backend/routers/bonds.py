@@ -78,6 +78,7 @@ class BondOut(BaseModel):
     registered_on_chain: bool = False
     registration_tx_hash: Optional[str] = None
     registration_block: Optional[int] = None
+    blockchain_warning: Optional[str] = None  # set on create if on-chain registration failed
 
     class Config:
         from_attributes = True
@@ -200,24 +201,46 @@ def create_bond(data: BondCreate, db: Session = Depends(get_db)):
     # Register on-chain so the smart contract knows about this bond.
     # recordRateChange will revert with "bond not registered" if we skip this.
     # Non-fatal — if blockchain is unavailable the bond is still created in DB.
+    blockchain_warning = None
     try:
         from services.blockchain import blockchain_service
         tx = blockchain_service.register_bond(bond.id, float(bond.base_rate))
-        if tx:
+        if tx and tx.get("status") == "CONFIRMED":
+            bond.registered_on_chain = True
+            raw_hash = tx.get("tx_hash", "")
+            bond.registration_tx_hash = raw_hash if raw_hash.startswith("0x") else "0x" + raw_hash
+            bond.registration_block = tx.get("block_number")
+            db.commit()
+            db.refresh(bond)
             logger.info(f"Bond {bond.id} registered on-chain: {tx['tx_hash']}")
-        else:
-            logger.warning(
-                f"Bond {bond.id} created in DB but NOT registered on-chain "
-                f"(blockchain unavailable). Rate change TXs will fail until "
-                f"the bond is registered. Re-register via /api/blockchain/register/{bond.id}"
+        elif tx and tx.get("status") == "REVERTED":
+            blockchain_warning = (
+                f"Bond created in DB but blockchain registration REVERTED. "
+                f"The smart contract rejected the transaction. "
+                f"Use Bond Registration → Manage Bonds → Fix Registration to retry."
             )
+            logger.warning(f"Bond {bond.id} registration reverted: {tx}")
+        else:
+            blockchain_warning = (
+                f"Bond created in DB but could not be registered on-chain "
+                f"(blockchain unavailable or no TX returned). "
+                f"Daily audits will fail until registered. "
+                f"Use Bond Registration → Manage Bonds → Fix Registration to retry."
+            )
+            logger.warning(f"Bond {bond.id} created but not registered on-chain.")
     except Exception as e:
+        blockchain_warning = (
+            f"Bond created in DB but blockchain registration failed: {str(e)[:120]}. "
+            f"Use Bond Registration → Manage Bonds → Fix Registration to retry."
+        )
         logger.error(f"Blockchain registration failed for {bond.id}: {e}")
 
     # Invalidate list cache so new bond appears immediately
     redis_client.delete("bonds:list", "dashboard:summary")
 
-    return bond
+    bond_out = BondOut.model_validate(bond)
+    bond_out.blockchain_warning = blockchain_warning
+    return bond_out
 
 
 @router.get("/{bond_id}/timeseries")
