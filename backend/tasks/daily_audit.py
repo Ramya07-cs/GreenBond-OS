@@ -84,10 +84,6 @@ def run_daily_audit(self, target_date: str = None, bond_id: str = None):
 def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict):
     """Run the complete audit pipeline for a single bond."""
     import asyncio
-
-    # Skip if a completed (COMPLIANT or PENALTY) audit already exists for this+date. 
-    # This makes the task idempotent — safe to re-run during catchup
-    # or if Beat fires twice without triggering a duplicate write.
     already_done = (
         db.query(AuditLog)
         .filter(
@@ -98,10 +94,67 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
         .first()
     )
     if already_done:
-        logger.info(
-            f"  {bond.id} on {audit_date}: already has {already_done.verdict} record — skipping."
-        )
-        return
+        if already_done.blockchain_tx_hash is not None:
+            logger.info(
+                f"  {bond.id} on {audit_date}: already has {already_done.verdict} record "
+                f"with TX {already_done.blockchain_tx_hash} — skipping."
+            )
+            return
+        else:
+
+            logger.info(
+                f"  {bond.id} on {audit_date}: has {already_done.verdict} record but NO tx_hash "
+                f"(prior blockchain write failed). Retrying blockchain TX only."
+            )
+            if already_done.rate_before is not None and already_done.rate_after is not None:
+                trigger_type = (
+                    "PENALTY_TRIGGER" if already_done.verdict == "PENALTY"
+                    else "RECOVERY_TRIGGER" if already_done.verdict == "RECOVERY"
+                    else "COMPLIANT"
+                )
+                pr_data = {
+                    "date": str(audit_date),
+                    "pr": float(already_done.calculated_pr) if already_done.calculated_pr else None,
+                    "nasa_ghi": float(already_done.nasa_ghi) if already_done.nasa_ghi else None,
+                    "actual_kwh": float(already_done.actual_kwh) if already_done.actual_kwh else None,
+                    "retry": True,
+                }
+                tx_result = blockchain_service.write_rate_change(
+                    bond_id=bond.id,
+                    previous_rate=float(already_done.rate_before),
+                    new_rate=float(already_done.rate_after),
+                    trigger_type=trigger_type,
+                    pr_data=pr_data,
+                )
+                if tx_result:
+                    already_done.blockchain_tx_hash = tx_result["tx_hash"]
+                    already_done.block_number = tx_result.get("block_number")
+                    already_done.gas_used = tx_result.get("gas_used")
+                    db.flush()
+                    logger.info(
+                        f"  TX retry succeeded for {bond.id} {audit_date}: "
+                        f"{tx_result['tx_hash']} (gas: {tx_result.get('gas_used')})"
+                    )
+                    results["rate_changes"].append({
+                        "bond_id": bond.id,
+                        "trigger": trigger_type,
+                        "from": float(already_done.rate_before),
+                        "to": float(already_done.rate_after),
+                        "tx_hash": tx_result["tx_hash"],
+                        "retried": True,
+                    })
+                else:
+                    logger.warning(
+                        f"  TX retry still failed for {bond.id} {audit_date} — "
+                        f"blockchain unavailable or insufficient funds."
+                    )
+            else:
+                logger.warning(
+                    f"  {bond.id} {audit_date}: no rate data in existing record — "
+                    f"cannot retry TX. Use force=true to fully re-audit."
+                )
+            results["bonds_processed"] += 1
+            return
 
     logger.info(f"Auditing {bond.id} ({bond.name})")
 

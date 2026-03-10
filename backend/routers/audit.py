@@ -47,6 +47,7 @@ def get_audit_logs(
                 "rate_after": float(log.rate_after) if log.rate_after else None,
                 "blockchain_tx_hash": log.blockchain_tx_hash,
                 "block_number": log.block_number,
+                "gas_used": log.gas_used,
             }
             for log in logs
         ],
@@ -93,7 +94,53 @@ def trigger_manual_audit(
     }
 
 
-@router.post("/catchup")
+@router.patch("/patch-tx")
+def patch_audit_tx(
+    bond_id: str,
+    date: str,
+    tx_hash: str,
+    gas_used: int = None,
+    block_number: int = None,
+    rate_before: float = None,
+    rate_after: float = None,
+    db: Session = Depends(get_db),
+):
+    log = (
+        db.query(AuditLog)
+        .filter(AuditLog.bond_id == bond_id, AuditLog.date == date)
+        .first()
+    )
+    if not log:
+        raise HTTPException(status_code=404, detail=f"No audit log for {bond_id} on {date}")
+
+    log.blockchain_tx_hash = tx_hash
+    if gas_used is not None:
+        log.gas_used = gas_used
+    if block_number is not None:
+        log.block_number = block_number
+    if rate_before is not None:
+        log.rate_before = rate_before
+    if rate_after is not None:
+        log.rate_after = rate_after
+
+    db.commit()
+
+    from redis_client import redis_client
+    ts_keys = redis_client.keys(f"bond:timeseries:{bond_id}:*")
+    keys_to_bust = [f"bond:detail:{bond_id}", "bonds:list", "dashboard:summary"] + list(ts_keys)
+    redis_client.delete(*keys_to_bust)
+
+    return {
+        "bond_id": bond_id,
+        "date": date,
+        "blockchain_tx_hash": log.blockchain_tx_hash,
+        "gas_used": log.gas_used,
+        "block_number": log.block_number,
+        "rate_before": float(log.rate_before) if log.rate_before else None,
+        "rate_after": float(log.rate_after) if log.rate_after else None,
+        "status": "patched",
+    }
+
 def trigger_manual_catchup():
     try:
         from tasks.catchup import catchup_missed_audits

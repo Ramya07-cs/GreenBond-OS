@@ -14,7 +14,7 @@ class BondStatus(str, enum.Enum):
 class Bond(Base):
     __tablename__ = "bonds"
 
-    id = Column(String(20), primary_key=True)           # e.g. "GB-2024-001"
+    id = Column(String(20), primary_key=True)           
     name = Column(String(100), nullable=False)
     capacity_kw = Column(Numeric(10, 2), nullable=False)
     lat = Column(Numeric(9, 6), nullable=False)
@@ -22,12 +22,12 @@ class Bond(Base):
     base_rate = Column(Numeric(5, 3), nullable=False)
     current_rate = Column(Numeric(5, 3), nullable=False)
     status = Column(String(20), default=BondStatus.ACTIVE, nullable=False)
-    tvl = Column(Integer, default=0)                    # Total value locked (INR)
-    maturity_date = Column(Date, nullable=True)
+    tvl = Column(Integer, default=0)                   
+    maturity_date = Column(Date, nullable=False)
     issuer_email = Column(String(200), nullable=True)
     issuer_phone = Column(String(20), nullable=True)
 
-    # ── On-chain registration (set once via /api/blockchain/register/:id) ─────
+    # ── On-chain registration 
     registered_on_chain = Column(Boolean, default=False, nullable=False)
     registration_tx_hash = Column(String(100), nullable=True)
     registration_block = Column(BigInteger, nullable=True)

@@ -26,8 +26,10 @@ class AuditService:
     ) -> AuditLog:
         """Persist a single day's audit record to the database."""
 
-        # Guard: if a completed record already exists for this bond+date, never
-        # overwrite it. This makes write_audit_log fully idempotent.
+        # Guard: if a completed record already exists for this bond+date, only
+        # skip if it already has a blockchain TX hash (fully anchored).
+        # If tx_hash is None, the prior blockchain write failed (e.g. out-of-gas)
+        # and we should update the record with the new TX result.
         completed = (
             db.query(AuditLog)
             .filter(
@@ -38,11 +40,28 @@ class AuditService:
             .first()
         )
         if completed:
-            logger.info(
-                f"Skipping write for {bond_id} {audit_date} — "
-                f"completed {completed.verdict} record already exists."
-            )
-            return completed
+            if completed.blockchain_tx_hash is not None:
+                logger.info(
+                    f"Skipping write for {bond_id} {audit_date} — "
+                    f"completed {completed.verdict} record with TX already exists."
+                )
+                return completed
+            else:
+                # Has verdict but no TX hash — update tx fields only if we now have a result
+                if tx_result:
+                    completed.blockchain_tx_hash = tx_result["tx_hash"]
+                    completed.block_number = tx_result.get("block_number")
+                    completed.gas_used = tx_result.get("gas_used")
+                    db.flush()
+                    logger.info(
+                        f"Updated tx_hash for {bond_id} {audit_date}: {tx_result['tx_hash']}"
+                    )
+                else:
+                    logger.info(
+                        f"Completed record for {bond_id} {audit_date} still has no TX — "
+                        f"blockchain write unavailable again."
+                    )
+                return completed
 
         existing_all = (
             db.query(AuditLog)

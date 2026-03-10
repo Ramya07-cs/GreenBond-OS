@@ -77,7 +77,7 @@ export default function BondRegistration() {
   });
 
   const handleSubmit = () => {
-    if (!form.id || !form.name || !form.capacity_kw || !form.lat || !form.lng || !form.base_rate) return;
+    if (!form.id || !form.name || !form.capacity_kw || !form.lat || !form.lng || !form.base_rate || !form.tvl || !form.maturity_date) return;
     mutation.mutate({
       id: form.id.trim().toUpperCase(),
       name: form.name.trim(),
@@ -85,14 +85,15 @@ export default function BondRegistration() {
       lat: parseFloat(form.lat),
       lng: parseFloat(form.lng),
       base_rate: parseFloat(form.base_rate),
-      tvl: form.tvl ? parseInt(form.tvl) : 0,
-      maturity_date: form.maturity_date || null,
+      tvl: form.tvl ? parseInt(form.tvl) : undefined,
+      maturity_date: form.maturity_date,
       issuer_email: form.issuer_email || null,
       issuer_phone: form.issuer_phone || null,
     });
   };
 
-  const isValid = form.id && form.name && form.capacity_kw && form.lat && form.lng && form.base_rate;
+  const today = new Date().toISOString().split("T")[0];
+  const isValid = form.id && form.name && form.capacity_kw && form.lat && form.lng && form.base_rate && form.tvl && form.maturity_date && form.maturity_date >= today;
 
   if (result?.ok) {
     const b = result.bond;
@@ -278,11 +279,14 @@ export default function BondRegistration() {
           </Field>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field n={7} label="Total Value Locked (₹)" hint="Optional. TVL in rupees.">
+            <Field n={7} label="Total Value Locked (₹)" hint="Required. Total value locked in rupees.">
               <input type="number" placeholder="e.g. 10000000" value={form.tvl} onChange={set("tvl")} style={inputStyle} />
             </Field>
-            <Field n={8} label="Maturity Date" hint="Optional. The date this bond expires and investors are repaid principal.">
-              <input type="date" value={form.maturity_date} min={new Date().toISOString().split("T")[0]} onChange={set("maturity_date")} style={inputStyle} />
+            <Field n={8} label="Maturity Date" hint="Required. The date this bond expires and investors are repaid principal.">
+              <input type="date" value={form.maturity_date} min={new Date().toISOString().split("T")[0]} onChange={set("maturity_date")} style={{...inputStyle, borderColor: form.maturity_date && form.maturity_date < new Date().toISOString().split("T")[0] ? "var(--red)" : undefined}} />
+              {form.maturity_date && form.maturity_date < new Date().toISOString().split("T")[0] && (
+                <div style={{ fontSize: 10, color: "var(--red)", marginTop: 4 }}>⚠ Maturity date must be today or a future date.</div>
+              )}
             </Field>
           </div>
 

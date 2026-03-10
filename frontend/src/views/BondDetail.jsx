@@ -388,7 +388,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                               color: accentColor, border: `1px solid ${accentColor}33` }}>
                               {log.verdict}
                             </span>
-                            <span style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)" }}>{log.date}</span>
+                            <span style={{ fontSize: 9, color: "var(--text)", fontFamily: "var(--mono)" }}>{log.date}</span>
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
                             {[

@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -53,10 +53,19 @@ class BondCreate(BaseModel):
     lat: float
     lng: float
     base_rate: float
-    tvl: Optional[int] = 0
-    maturity_date: Optional[date] = None
+    tvl: int
+    maturity_date: date
     issuer_email: Optional[str] = None
     issuer_phone: Optional[str] = None
+
+    @model_validator(mode="after")
+    def maturity_must_be_today_or_later(self):
+        from datetime import date as date_type
+        if self.maturity_date < date_type.today():
+            raise ValueError(
+                f"maturity_date must be today or a future date (got {self.maturity_date})"
+            )
+        return self
 
 
 class BondOut(BaseModel):
@@ -293,20 +302,23 @@ def get_timeseries(
         }
         for log in logs
     ]
-    interest_series = [
-        {
-            "day": str(log.date),
-            "rate": float(log.rate_after) if log.rate_after else float(bond.base_rate),
-        }
-        for log in logs
-    ]
+   
+    _last_rate = float(bond.base_rate)
+    _interest_points = {}
+    for log in sorted(logs, key=lambda l: l.date):
+        if log.rate_after is not None:
+            _interest_points[str(log.date)] = float(log.rate_after)
+            _last_rate = float(log.rate_after)
+        else:
+            _interest_points[str(log.date)] = _last_rate
+    interest_series = [{"day": d, "rate": r} for d, r in _interest_points.items()]
 
     # Add PENDING entries: production submitted but no audit yet (NASA lag or not yet run)
+    # Do NOT add interest_series points for pending/unaudited days.
     for p in production:
         if str(p.date) not in audited_dates:
             perf_series.append({"day": str(p.date), "pr": None, "nasa_ghi": None, "verdict": "PENDING", "threshold": 0.75})
             energy_series.append({"day": str(p.date), "actual": float(p.kwh), "predicted": None})
-            interest_series.append({"day": str(p.date), "rate": float(bond.current_rate)})
 
     perf_series.sort(key=lambda x: x["day"])
     energy_series.sort(key=lambda x: x["day"])

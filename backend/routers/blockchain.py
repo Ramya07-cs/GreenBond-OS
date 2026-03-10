@@ -107,7 +107,99 @@ def register_bond_on_chain(bond_id: str):
         db.close()
 
 
-@router.patch("/register/{bond_id}/tx")
+@router.post("/retry-pending")
+def retry_pending_blockchain_txs(bond_id: str = None, date: str = None):
+    from database import SessionLocal
+    from models import AuditLog, Bond
+    from redis_client import redis_client
+    import json
+    from web3 import Web3
+
+    db = SessionLocal()
+    retried = []
+    failed = []
+
+    try:
+        query = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
+                AuditLog.blockchain_tx_hash.is_(None),
+                AuditLog.rate_before.isnot(None),   # must have had a rate change to anchor
+                AuditLog.rate_after.isnot(None),
+            )
+        )
+        if bond_id:
+            query = query.filter(AuditLog.bond_id == bond_id)
+        if date:
+            query = query.filter(AuditLog.date == date)
+
+        records = query.order_by(AuditLog.date.asc()).limit(50).all()
+
+        if not records:
+            return {"message": "No pending-tx records found", "retried": [], "failed": []}
+
+        for log in records:
+            bond = db.query(Bond).filter(Bond.id == log.bond_id).first()
+            if not bond:
+                failed.append({"bond_id": log.bond_id, "date": str(log.date), "reason": "bond not found"})
+                continue
+
+            trigger_type = (
+                "PENALTY_TRIGGER" if log.verdict == "PENALTY"
+                else "RECOVERY_TRIGGER" if log.verdict == "RECOVERY"
+                else "COMPLIANT"
+            )
+
+            pr_data = {
+                "date": str(log.date),
+                "pr": float(log.calculated_pr) if log.calculated_pr else None,
+                "nasa_ghi": float(log.nasa_ghi) if log.nasa_ghi else None,
+                "actual_kwh": float(log.actual_kwh) if log.actual_kwh else None,
+                "retry": True,
+            }
+
+            tx_result = blockchain_service.write_rate_change(
+                bond_id=log.bond_id,
+                previous_rate=float(log.rate_before),
+                new_rate=float(log.rate_after),
+                trigger_type=trigger_type,
+                pr_data=pr_data,
+            )
+
+            if tx_result:
+                log.blockchain_tx_hash = tx_result["tx_hash"]
+                log.block_number = tx_result.get("block_number")
+                log.gas_used = tx_result.get("gas_used")
+                db.flush()
+                _ts_keys = redis_client.keys(f"bond:timeseries:{log.bond_id}:*")
+                _bust = [f"bond:detail:{log.bond_id}", "bonds:list", "dashboard:summary"] + list(_ts_keys)
+                redis_client.delete(*_bust)
+                retried.append({
+                    "bond_id": log.bond_id,
+                    "date": str(log.date),
+                    "tx_hash": tx_result["tx_hash"],
+                    "block_number": tx_result.get("block_number"),
+                })
+            else:
+                failed.append({
+                    "bond_id": log.bond_id,
+                    "date": str(log.date),
+                    "reason": "blockchain write failed (check wallet balance / RPC)",
+                })
+
+        db.commit()
+        return {
+            "message": f"Retry complete: {len(retried)} anchored, {len(failed)} still failed",
+            "retried": retried,
+            "failed": failed,
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
+    finally:
+        db.close()
+        
 def set_registration_tx(bond_id: str, tx_hash: str, block_number: int = None):
     from database import SessionLocal
     from models import Bond
