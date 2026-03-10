@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from database import SessionLocal
 from models import Bond, AuditLog, BondStatus
+from redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,20 @@ def catchup_missed_audits() -> dict:
             # and don't all slam the NASA API simultaneously.
             queued_dates = []
             for i, missed_date in enumerate(missed_dates):
+                # Dedup: skip if this bond+date was already queued in the last
+                # 12 hours (e.g. by a concurrent startup or a previous beat tick).
+                # TTL of 43200s = 12 hours — long enough to survive a full audit
+                # cycle, short enough to allow legitimate retries next day.
+                queue_lock_key = f"catchup:queued:{bond.id}:{missed_date}"
+                already_queued = not redis_client.set(
+                    queue_lock_key, "1", nx=True, ex=43200
+                )
+                if already_queued:
+                    logger.info(
+                        f"[Catchup] {bond.id} {missed_date}: already queued recently — skipping duplicate."
+                    )
+                    continue
+
                 run_daily_audit.apply_async(
                     kwargs={"target_date": str(missed_date)},
                     queue="audits",
@@ -139,7 +154,7 @@ def _find_missed_dates(
     cutoff: date,
 ) -> list[date]:
 
-    # Find the last audited date for this bond (any verdict including IGNORED)
+    # Find the last audited date for this bond (any verdict including IGNORED/PENDING)
     last_audited: Optional[date] = (
         db.query(func.max(AuditLog.date))
         .filter(AuditLog.bond_id == bond_id)
@@ -147,48 +162,44 @@ def _find_missed_dates(
     )
 
     if last_audited is None:
-        # Bond has never been audited — start from the cutoff date
         start_from = cutoff
         logger.info(
             f"[Catchup] {bond_id}: no audit history found. "
             f"Will process from {cutoff}."
         )
     elif last_audited >= up_to:
-        # Already audited through yesterday — but may still have IGNORED days
-        # to retry (see below). Set start_from to cutoff so we scan the range.
         start_from = cutoff
     else:
-        # Start checking from the day after the last known audit
         start_from = last_audited + timedelta(days=1)
 
-    # Clamp to the lookback window
     start_from = max(start_from, cutoff)
-
     if start_from > up_to:
-        start_from = cutoff  # still need to scan for IGNORED retries
+        start_from = cutoff
 
-    # NASA POWER has a 5–6 day processing lag. Any IGNORED audit written within
-    # the last 7 days may now have GHI data available — re-queue those dates.
-    nasa_lag_cutoff = date.today() - timedelta(days=7)
-    retriable_ignored: set[date] = set(
+    # NASA POWER has a 5–6 day processing lag. Only retry IGNORED/PENDING audits
+    # that are at least 7 days old — this guarantees NASA data should be available.
+    # Retrying fresher dates would just produce the same "data lag" skip again.
+    nasa_ready_cutoff = date.today() - timedelta(days=7)
+
+    retriable_incomplete: set[date] = set(
         row[0]
         for row in db.query(AuditLog.date)
         .filter(
             AuditLog.bond_id == bond_id,
-            AuditLog.verdict == "IGNORED",
-            AuditLog.date >= max(cutoff, nasa_lag_cutoff),
+            AuditLog.verdict.in_(["IGNORED", "PENDING"]),
+            AuditLog.date >= max(cutoff, nasa_ready_cutoff),
             AuditLog.date <= up_to,
         )
         .all()
     )
 
-    if retriable_ignored:
+    if retriable_incomplete:
         logger.info(
-            f"[Catchup] {bond_id}: {len(retriable_ignored)} IGNORED day(s) within "
-            f"NASA lag window — will retry: {sorted(retriable_ignored)}"
+            f"[Catchup] {bond_id}: {len(retriable_incomplete)} IGNORED/PENDING day(s) "
+            f"past NASA lag window — will retry: {sorted(retriable_incomplete)}"
         )
 
-    # Fetch all dates that have a COMPLIANT or PENALTY record (truly done)
+    # Dates with a COMPLIANT or PENALTY record are fully done — never re-queue
     completed_dates: set[date] = set(
         row[0]
         for row in db.query(AuditLog.date)
@@ -201,16 +212,27 @@ def _find_missed_dates(
         .all()
     )
 
-    # Walk the full range from cutoff: collect missing dates + retriable IGNORED
-    scan_from = max(cutoff, start_from)
-    # Also scan back to nasa_lag_cutoff to catch IGNORED days in the lag window
-    scan_from = min(scan_from, max(cutoff, nasa_lag_cutoff))
+    # Dates with any audit record (including IGNORED/PENDING) that are still
+    # within the NASA lag window — too fresh to retry, leave them alone
+    fresh_incomplete: set[date] = set(
+        row[0]
+        for row in db.query(AuditLog.date)
+        .filter(
+            AuditLog.bond_id == bond_id,
+            AuditLog.verdict.in_(["IGNORED", "PENDING"]),
+            AuditLog.date > nasa_ready_cutoff,  # fresher than 7 days = not ready
+            AuditLog.date <= up_to,
+        )
+        .all()
+    )
+
+    scan_from = min(max(cutoff, start_from), max(cutoff, nasa_ready_cutoff))
 
     missed = []
     current = scan_from
     while current <= up_to:
-        if current not in completed_dates:
+        if current not in completed_dates and current not in fresh_incomplete:
             missed.append(current)
         current += timedelta(days=1)
 
-    return missed  # Already in chronological order
+    return missed  # Chronological order

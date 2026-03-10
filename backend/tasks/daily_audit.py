@@ -23,9 +23,12 @@ logger = logging.getLogger(__name__)
     max_retries=3,
     default_retry_delay=300,  # 5 minutes between retries
 )
-def run_daily_audit(self, target_date: str = None):
+def run_daily_audit(self, target_date: str = None, bond_id: str = None):
     audit_date = date.fromisoformat(target_date) if target_date else date.today()
-    logger.info(f"=== Daily Audit Started for {audit_date} ===")
+    logger.info(
+        f"=== Daily Audit Started for {audit_date} ==="
+        + (f" [bond={bond_id}]" if bond_id else "")
+    )
 
     db: Session = SessionLocal()
     results = {
@@ -37,11 +40,17 @@ def run_daily_audit(self, target_date: str = None):
     }
 
     try:
-        active_bonds = (
-            db.query(Bond)
-            .filter(Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY]))
-            .all()
+        query = db.query(Bond).filter(
+            Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY])
         )
+        if bond_id:
+            query = query.filter(Bond.id == bond_id)
+        active_bonds = query.all()
+
+        if bond_id and not active_bonds:
+            raise ValueError(
+                f"Bond '{bond_id}' not found or not in ACTIVE/PENALTY status"
+            )
 
         logger.info(f"Processing {len(active_bonds)} active bonds")
 

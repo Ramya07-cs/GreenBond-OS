@@ -1,10 +1,12 @@
+import logging
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import date
+from datetime import date as date_type
 from database import get_db
 from models import AuditLog
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 
@@ -54,14 +56,40 @@ def get_audit_logs(
 @router.post("/run")
 def trigger_manual_audit(
     target_date: Optional[str] = None,
+    date: Optional[str] = None,          
     bond_id: Optional[str] = None,
+    force: bool = False,                  # clears existing audit + Redis locks so re-audit runs
+    db: Session = Depends(get_db),
 ):
     from tasks.daily_audit import run_daily_audit
-    task = run_daily_audit.delay(target_date=target_date)
+    from redis_client import redis_client
+
+   
+    resolved_date = target_date or date
+    if force and resolved_date and bond_id:
+        deleted = (
+            db.query(AuditLog)
+            .filter(AuditLog.bond_id == bond_id, AuditLog.date == resolved_date)
+            .delete()
+        )
+        db.commit()
+        redis_client.delete(f"audit:lock:{bond_id}:{resolved_date}")
+        redis_client.delete(f"catchup:queued:{bond_id}:{resolved_date}")
+        logger.info(
+            f"[ForceReaudit] Cleared {deleted} audit record(s) + locks "
+            f"for {bond_id} on {resolved_date}"
+        )
+
+    task = run_daily_audit.apply_async(
+        kwargs={"target_date": resolved_date, "bond_id": bond_id},
+        queue="audits",
+    )
     return {
         "message": "Audit task queued",
         "task_id": task.id,
-        "target_date": target_date or str(date.today()),
+        "target_date": resolved_date or str(date_type.today()),
+        "bond_id": bond_id or "all",
+        "forced": force,
     }
 
 

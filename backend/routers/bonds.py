@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AuditLog, Bond, BondStatus, ProductionEntry
+from models import Alert, AuditLog, Bond, BondStatus, ProductionEntry
 from redis_client import redis_client
 
 logger = logging.getLogger(__name__)
@@ -198,9 +198,6 @@ def create_bond(data: BondCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(bond)
 
-    # Register on-chain so the smart contract knows about this bond.
-    # recordRateChange will revert with "bond not registered" if we skip this.
-    # Non-fatal — if blockchain is unavailable the bond is still created in DB.
     blockchain_warning = None
     try:
         from services.blockchain import blockchain_service
@@ -326,3 +323,47 @@ def get_timeseries(
     # Cache until midnight — data complete for the day after 6 AM audit
     redis_client.setex(cache_key, _seconds_until_midnight_utc(), json.dumps(response, default=str))
     return response
+
+@router.delete("/{bond_id}", status_code=200)
+def delete_bond(bond_id: str, db: Session = Depends(get_db)):
+    """Delete a bond and all associated audit logs and production entries."""
+    bond = db.query(Bond).filter(Bond.id == bond_id).first()
+    if not bond:
+        raise HTTPException(status_code=404, detail=f"Bond {bond_id} not found")
+
+    # Delete related records first (FK constraints)
+    db.query(Alert).filter(Alert.bond_id == bond_id).delete()
+    db.query(AuditLog).filter(AuditLog.bond_id == bond_id).delete()
+    db.query(ProductionEntry).filter(ProductionEntry.bond_id == bond_id).delete()
+    db.delete(bond)
+    db.commit()
+
+    # Clear all cache keys for this bond
+    pattern_keys = redis_client.keys(f"bond:*:{bond_id}*")
+    keys_to_delete = [
+        f"bond:detail:{bond_id}",
+        f"bond:pr_today:{bond_id}",
+        f"bond:timeseries:{bond_id}",
+        "bonds:list",
+        "dashboard:summary",
+    ] + (pattern_keys if pattern_keys else [])
+    redis_client.delete(*keys_to_delete)
+
+    return {"deleted": bond_id}
+
+
+@router.patch("/{bond_id}/registration", status_code=200)
+def fix_bond_registration(bond_id: str, tx_hash: str, block_number: int = None, db: Session = Depends(get_db)):
+    """Backfill registration TX hash for a bond registered outside the UI."""
+    bond = db.query(Bond).filter(Bond.id == bond_id).first()
+    if not bond:
+        raise HTTPException(status_code=404, detail=f"Bond {bond_id} not found")
+
+    bond.registered_on_chain = True
+    bond.registration_tx_hash = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
+    if block_number:
+        bond.registration_block = block_number
+    db.commit()
+
+    redis_client.delete("bonds:list", "dashboard:summary", f"bond:detail:{bond_id}")
+    return {"bond_id": bond_id, "tx_hash": bond.registration_tx_hash, "block_number": bond.registration_block, "status": "updated"}

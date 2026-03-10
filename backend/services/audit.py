@@ -153,4 +153,48 @@ class AuditService:
         return 0, 0
 
 
+    def write_audit_log_pending(
+        self,
+        db: Session,
+        bond_id: str,
+        audit_date: date,
+        actual_kwh: float,
+    ) -> AuditLog:
+        # Never overwrite a completed record
+        completed = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.bond_id == bond_id,
+                AuditLog.date == audit_date,
+                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
+            )
+            .first()
+        )
+        if completed:
+            return completed
+
+        existing = (
+            db.query(AuditLog)
+            .filter(AuditLog.bond_id == bond_id, AuditLog.date == audit_date)
+            .first()
+        )
+        if existing:
+            # Already have a PENDING/IGNORED record — just refresh the kwh value
+            existing.actual_kwh = actual_kwh
+            existing.verdict = "PENDING"
+            db.flush()
+            logger.info(f"Updated existing audit to PENDING: {bond_id} {audit_date}")
+            return existing
+
+        log = AuditLog(
+            bond_id=bond_id,
+            date=audit_date,
+            actual_kwh=actual_kwh,
+            verdict="PENDING",
+        )
+        db.add(log)
+        db.flush()
+        logger.info(f"Audit logged as PENDING: {bond_id} {audit_date} (awaiting NASA GHI)")
+        return log
+
 audit_service = AuditService()

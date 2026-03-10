@@ -72,7 +72,7 @@ export default function BondRegistration() {
 
   const mutation = useMutation({
     mutationFn: createBond,
-    onSuccess: (data) => setResult({ ok: true, bond: data }),
+    onSuccess: (data) => setResult({ ok: true, bond: data, warning: data.blockchain_warning || null }),
     onError: (err) => setResult({ ok: false, message: err?.response?.data?.detail || "Registration failed. Check console." }),
   });
 
@@ -84,7 +84,7 @@ export default function BondRegistration() {
       capacity_kw: parseFloat(form.capacity_kw),
       lat: parseFloat(form.lat),
       lng: parseFloat(form.lng),
-      base_rate: parseFloat(form.base_rate) / 100,
+      base_rate: parseFloat(form.base_rate),
       tvl: form.tvl ? parseInt(form.tvl) : 0,
       maturity_date: form.maturity_date || null,
       issuer_email: form.issuer_email || null,
@@ -105,7 +105,7 @@ export default function BondRegistration() {
             {b.name} is now active on the platform and ready to accept production data.
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-            {[["Bond ID", b.id], ["Status", b.status], ["Capacity", `${b.capacity_kw} kW`], ["Base Rate", `${(b.base_rate * 100).toFixed(2)}%`]].map(([k, v]) => (
+            {[["Bond ID", b.id], ["Status", b.status], ["Capacity", `${b.capacity_kw} kW`], ["Base Rate", `${Number(b.base_rate).toFixed(2)}%`]].map(([k, v]) => (
               <div key={k} style={{ padding: "8px 12px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", textAlign: "left" }}>
                 <div style={{ fontSize: 9, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>{k}</div>
                 <div style={{ fontSize: 12, color: "var(--green)", fontFamily: "var(--mono)", fontWeight: 600, marginTop: 2 }}>{v}</div>
@@ -119,6 +119,13 @@ export default function BondRegistration() {
 { "bond_id": "${b.id}", "device_id": "...", "date": "YYYY-MM-DD", "kwh": 0.0 }`}
             </pre>
           </div>
+          {result?.warning && (
+            <div style={{ margin: "0 0 14px", padding: "10px 14px", background: "rgba(255,179,0,.08)", border: "1px solid rgba(255,179,0,.3)", borderRadius: "var(--r2)", textAlign: "left" }}>
+              <div style={{ fontSize: 10, color: "var(--amber)", fontWeight: 700, marginBottom: 4 }}>⚠ Blockchain Registration Failed</div>
+              <div style={{ fontSize: 10, color: "var(--text2)", fontFamily: "var(--mono)", marginBottom: 6 }}>{result.warning}</div>
+              <div style={{ fontSize: 9, color: "var(--text3)" }}>Bond saved to DB. Daily audits will fail until registered. Go to <strong>Manage Bonds → Fix Registration</strong> to resolve.</div>
+            </div>
+          )}
           <button onClick={() => { setResult(null); setForm(INITIAL); }}
             style={{ padding: "9px 20px", background: "var(--card2)", border: "1px solid var(--border2)", color: "var(--text)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 11, fontFamily: "var(--mono)" }}>
             Register Another Bond
@@ -352,7 +359,7 @@ export default function BondRegistration() {
   capacity_kw: form.capacity_kw ? parseFloat(form.capacity_kw) : null,
   lat: form.lat ? parseFloat(form.lat) : null,
   lng: form.lng ? parseFloat(form.lng) : null,
-  base_rate: form.base_rate ? parseFloat(form.base_rate) / 100 : null,
+  base_rate: form.base_rate ? parseFloat(form.base_rate) : null,
   status: "ACTIVE",
 }, null, 2)}
             </pre>

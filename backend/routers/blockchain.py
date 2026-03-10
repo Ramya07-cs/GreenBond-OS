@@ -82,9 +82,14 @@ def register_bond_on_chain(bond_id: str):
                 detail="Blockchain unavailable — registration failed. Check your RPC URL and wallet credentials.",
             )
 
-        # ── Persist registration proof to DB ───────────────────────────────────
+        # ── Persist registration proof to DB (only if TX confirmed) ──────────
+        if tx["status"] != "CONFIRMED":
+            raise HTTPException(
+                status_code=503,
+                detail=f"Registration TX submitted but FAILED on-chain (hash: {tx['tx_hash']}). Check wallet balance and contract.",
+            )
         bond.registered_on_chain = True
-        bond.registration_tx_hash = tx["tx_hash"]
+        bond.registration_tx_hash = tx["tx_hash"] if tx["tx_hash"].startswith("0x") else "0x" + tx["tx_hash"]
         bond.registration_block = tx["block_number"]
         db.commit()
 
@@ -104,11 +109,6 @@ def register_bond_on_chain(bond_id: str):
 
 @router.patch("/register/{bond_id}/tx")
 def set_registration_tx(bond_id: str, tx_hash: str, block_number: int = None):
-    """
-    Backfill the registration TX hash for a bond that was registered via curl
-    before the DB-persistence fix was deployed.
-    Usage: PATCH /api/blockchain/register/GB-2025-001/tx?tx_hash=0xabc...&block_number=34870357
-    """
     from database import SessionLocal
     from models import Bond
     from redis_client import redis_client

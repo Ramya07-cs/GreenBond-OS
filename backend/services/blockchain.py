@@ -155,7 +155,7 @@ class BlockchainService:
             ).build_transaction({
                 "from": self._account.address,
                 "nonce": nonce,
-                "gas": 150000,
+                "gas": 300000,
                 "gasPrice": self._w3.eth.gas_price,
                 "chainId": 80002,
             })
@@ -226,7 +226,7 @@ class BlockchainService:
             ).build_transaction({
                 "from": self._account.address,
                 "nonce": nonce,
-                "gas": 150000,
+                "gas": 300000,
                 "gasPrice": self._w3.eth.gas_price,
                 "chainId": 80002,  # Polygon Amoy Testnet
             })
@@ -236,8 +236,9 @@ class BlockchainService:
             logger.info(f"[Blockchain] TX submitted: {tx_hash.hex()} for {bond_id}")
 
             receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            raw_hash = receipt["transactionHash"].hex()
             result = {
-                "tx_hash": receipt["transactionHash"].hex(),
+                "tx_hash": raw_hash if raw_hash.startswith("0x") else "0x" + raw_hash,
                 "block_number": receipt["blockNumber"],
                 "gas_used": receipt["gasUsed"],
                 "status": "CONFIRMED" if receipt["status"] == 1 else "FAILED",
