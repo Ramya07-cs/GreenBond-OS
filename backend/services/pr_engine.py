@@ -5,7 +5,6 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class PRResult:
     actual_kwh: float
@@ -63,7 +62,12 @@ class PREngine:
         actual_ghi = actual_kwh / (capacity_kw * settings.PERFORMANCE_FACTOR)
         pr = round(actual_ghi / nasa_ghi, 4)
 
-        is_compliant = pr >= settings.PR_THRESHOLD
+        # PR > 1.0 (>100%) is physically implausible — flag as PENALTY
+        if pr > 1.0:
+            pr = round(pr, 4)   # keep real value for audit trail visibility
+            is_compliant = False
+        else:
+            is_compliant = pr >= settings.PR_THRESHOLD
         verdict = "COMPLIANT" if is_compliant else "PENALTY"
 
         logger.debug(
@@ -88,6 +92,5 @@ class PREngine:
                 "deficit_kwh": round(max(0, expected_kwh - actual_kwh), 2),
             },
         )
-
 
 pr_engine = PREngine()

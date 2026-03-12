@@ -64,26 +64,17 @@ def system_health(db: Session = Depends(get_db)):
     except Exception as e:
         services["celery_worker"] = {"status": "ERROR", "ok": False, "error": str(e)}
 
-    # Celery Beat — check the schedule file in multiple candidate locations.
-    # Beat writes celerybeat-schedule to its CWD (typically backend/) not /tmp.
-    # We also write a Redis heartbeat key from the beat schedule itself as a
-    # more reliable signal — if the key exists and is fresh, Beat is alive.
     try:
         import os
-
-        # ── Method 1: Redis heartbeat (most reliable) ─────────────────────────
-        # Beat can be configured to write a heartbeat key; if present and fresh
-        # (written within the last 2 hours), Beat is confirmed running.
         beat_redis_key = "celerybeat:heartbeat"
         redis_hb = redis_client.get(beat_redis_key)
         beat_alive_redis = redis_hb is not None
 
-        # ── Method 2: Schedule file in common locations ───────────────────────
-        # Beat writes celerybeat-schedule(.db) to its working directory.
+       
         candidate_paths = [
-            "celerybeat-schedule",            # backend/ when run from there
+            "celerybeat-schedule",           
             "celerybeat-schedule.db",
-            "/tmp/celerybeat-schedule",       # some deployments override this
+            "/tmp/celerybeat-schedule",      
             "/tmp/celerybeat-schedule.db",
             "../celerybeat-schedule",
         ]
@@ -158,7 +149,6 @@ def system_health(db: Session = Depends(get_db)):
                 "status": "OPERATIONAL" if resp.status_code == 200 else "DEGRADED",
                 "ok": resp.status_code == 200,
                 "latency_ms": round(resp.elapsed.total_seconds() * 1000),
-                # Show which bond we used — transparent for debugging
                 "ping_bond_id": bond.id,
                 "ping_coords": {"lat": float(bond.lat), "lng": float(bond.lng)},
             }

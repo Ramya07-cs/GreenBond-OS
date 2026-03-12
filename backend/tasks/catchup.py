@@ -7,7 +7,6 @@ from sqlalchemy import func
 
 from database import SessionLocal
 from models import Bond, AuditLog, BondStatus
-from redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -80,25 +79,8 @@ def catchup_missed_audits() -> dict:
                 f"{missed_dates[0]} → {missed_dates[-1]}. Queuing..."
             )
 
-            # Queue one Celery task per missed date, in chronological order.
-            # Using .apply_async with countdown so they run a few seconds apart
-            # and don't all slam the NASA API simultaneously.
             queued_dates = []
             for i, missed_date in enumerate(missed_dates):
-                # Dedup: skip if this bond+date was already queued in the last
-                # 12 hours (e.g. by a concurrent startup or a previous beat tick).
-                # TTL of 43200s = 12 hours — long enough to survive a full audit
-                # cycle, short enough to allow legitimate retries next day.
-                queue_lock_key = f"catchup:queued:{bond.id}:{missed_date}"
-                already_queued = not redis_client.set(
-                    queue_lock_key, "1", nx=True, ex=43200
-                )
-                if already_queued:
-                    logger.info(
-                        f"[Catchup] {bond.id} {missed_date}: already queued recently — skipping duplicate."
-                    )
-                    continue
-
                 run_daily_audit.apply_async(
                     kwargs={"target_date": str(missed_date)},
                     queue="audits",
@@ -126,11 +108,6 @@ def catchup_missed_audits() -> dict:
         )
 
     return summary
-    
-# ── Celery task wrapper ────────────────────────────────────────────────────────
-# Wrapping catchup_missed_audits as a Celery task allows Celery Beat to schedule
-# the IGNORED-day retry automatically (e.g. at 14:00 daily) without requiring
-# a server restart. The plain function is still used by main.py at startup.
 
 from tasks.celery_app import celery_app  # noqa: E402 — import after function def
 

@@ -9,7 +9,6 @@ from models import AuditLog
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
-
 @router.get("/")
 def get_audit_logs(
     bond_id: Optional[str] = None,
@@ -65,7 +64,6 @@ def trigger_manual_audit(
     from tasks.daily_audit import run_daily_audit
     from redis_client import redis_client
 
-   
     resolved_date = target_date or date
     if force and resolved_date and bond_id:
         deleted = (
@@ -75,7 +73,6 @@ def trigger_manual_audit(
         )
         db.commit()
         redis_client.delete(f"audit:lock:{bond_id}:{resolved_date}")
-        redis_client.delete(f"catchup:queued:{bond_id}:{resolved_date}")
         logger.info(
             f"[ForceReaudit] Cleared {deleted} audit record(s) + locks "
             f"for {bond_id} on {resolved_date}"
@@ -93,7 +90,6 @@ def trigger_manual_audit(
         "forced": force,
     }
 
-
 @router.patch("/patch-tx")
 def patch_audit_tx(
     bond_id: str,
@@ -105,6 +101,7 @@ def patch_audit_tx(
     rate_after: float = None,
     db: Session = Depends(get_db),
 ):
+    
     log = (
         db.query(AuditLog)
         .filter(AuditLog.bond_id == bond_id, AuditLog.date == date)
@@ -141,6 +138,7 @@ def patch_audit_tx(
         "status": "patched",
     }
 
+@router.post("/catchup")
 def trigger_manual_catchup():
     try:
         from tasks.catchup import catchup_missed_audits

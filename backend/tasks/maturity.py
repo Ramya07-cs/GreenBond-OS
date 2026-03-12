@@ -4,7 +4,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Bond, AuditLog, BondStatus
-from services.alerts import alert_service
 from services.audit import audit_service
 from tasks.celery_app import celery_app
 from redis_client import redis_client
@@ -14,10 +13,6 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(name="tasks.maturity.check_bond_maturity")
 def check_bond_maturity():
-    """
-    Detect and process bonds that have reached their maturity date.
-    Safe to run multiple times — idempotent (won't re-process MATURED bonds).
-    """
     today = date.today()
     db: Session = SessionLocal()
     summary = {"checked": 0, "matured": [], "errors": []}
@@ -102,18 +97,7 @@ def _process_matured_bond(db: Session, bond: Bond):
     bond.current_rate = bond.base_rate      # Reset to base at maturity
     db.flush()
 
-    # ── 3. Send maturity alert ────────────────────────────────────────────────
-    alert_service.send_maturity_alert(
-        bond_id=bond.id,
-        bond_name=bond.name,
-        maturity_date=str(bond.maturity_date),
-        final_avg_pr=final_avg_pr,
-        total_penalty_days=total_penalty_days,
-        issuer_email=bond.issuer_email,
-        issuer_phone=bond.issuer_phone,
-    )
-
-    # ── 4. Log alert record ───────────────────────────────────────────────────
+    # ── 3. Log alert record ───────────────────────────────────────────────────
     audit_service.write_alert(
         db=db,
         bond_id=bond.id,

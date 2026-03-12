@@ -42,7 +42,6 @@ def get_blockchain_status():
         "balance_threshold_matic": settings.LOW_BALANCE_THRESHOLD_MATIC,
     }
 
-
 @router.get("/tx/{tx_hash}")
 def get_transaction(tx_hash: str):
     """Fetch transaction details from Polygon."""
@@ -50,7 +49,6 @@ def get_transaction(tx_hash: str):
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return tx
-
 
 @router.get("/history/{bond_id}")
 def get_rate_history(bond_id: str):
@@ -61,7 +59,6 @@ def get_rate_history(bond_id: str):
             detail="Blockchain unavailable — cannot fetch on-chain history."
         )
     return {"bond_id": bond_id, "history": history, "count": len(history)}
-
 
 @router.post("/register/{bond_id}")
 def register_bond_on_chain(bond_id: str):
@@ -105,7 +102,6 @@ def register_bond_on_chain(bond_id: str):
         }
     finally:
         db.close()
-
 
 @router.post("/retry-pending")
 def retry_pending_blockchain_txs(bond_id: str = None, date: str = None):

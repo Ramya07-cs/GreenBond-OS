@@ -8,7 +8,6 @@ from models import ProductionEntry, Bond
 
 router = APIRouter(prefix="/api/production", tags=["production"])
 
-
 class ManualEntry(BaseModel):
     bond_id: str
     date: date
@@ -16,14 +15,12 @@ class ManualEntry(BaseModel):
     notes: Optional[str] = None
     uploaded_by: Optional[str] = None
 
-
 class IoTEntry(BaseModel):
     device_id: str
     bond_id: str
     date: date
     kwh: float
     timestamp: Optional[str] = None
-
 
 @router.post("/manual", status_code=201)
 def submit_manual_entry(data: ManualEntry, db: Session = Depends(get_db)):
@@ -96,7 +93,6 @@ def submit_iot_entry(data: IoTEntry, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(entry)
     return {"message": "IoT entry created", "id": entry.id}
-
 
 @router.get("/missing/{bond_id}")
 def get_missing_days(

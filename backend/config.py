@@ -5,7 +5,7 @@ from typing import List
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "GreenBond OS"
-    DEBUG: bool = False           #Used in main.py
+    DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
 
@@ -19,23 +19,14 @@ class Settings(BaseSettings):
     POLYGON_RPC_URL: str = "https://polygon-amoy.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
     WALLET_PRIVATE_KEY: str = "0xYOUR_PRIVATE_KEY"
     CONTRACT_ADDRESS: str = "0xYOUR_DEPLOYED_CONTRACT"
-    # Alert when wallet balance drops below this amount (in MATIC).
-    # At ~50 gwei gas price each TX costs ~0.0075 MATIC — 0.1 MATIC ≈ 13 TXs remaining.
+    # Alert when wallet balance drops below this (in MATIC).
+    # At ~50 gwei each TX costs ~0.0075 MATIC — 0.1 MATIC ≈ 13 TXs remaining.
     LOW_BALANCE_THRESHOLD_MATIC: float = 0.005
 
     # NASA POWER API
     NASA_API_BASE: str = "https://power.larc.nasa.gov/api/temporal/daily/point"
     NASA_COMMUNITY: str = "RE"
     NASA_PARAMETER: str = "ALLSKY_SFC_SW_DWN"
-
-    # Twilio SMS
-    TWILIO_ACCOUNT_SID: str = ""
-    TWILIO_AUTH_TOKEN: str = ""
-    TWILIO_FROM_NUMBER: str = ""
-
-    # SendGrid Email
-    SENDGRID_API_KEY: str = ""
-    ALERT_FROM_EMAIL: str = "alerts@greenbond.io"
 
     # Celery Beat
     CELERY_TIMEZONE: str = "Asia/Kolkata"
@@ -48,7 +39,7 @@ class Settings(BaseSettings):
     # PR Engine
     PR_THRESHOLD: float = 0.75
     CONSECUTIVE_PENALTY_DAYS: int = 3
-    CONSECUTIVE_RECOVERY_DAYS: int = 7
+    CONSECUTIVE_RECOVERY_DAYS: int = 5
     PERFORMANCE_FACTOR: float = 0.80
     PENALTY_RATE_MULTIPLIER: float = 1.5
 

@@ -11,7 +11,7 @@ class Alert(Base):
     bond_id = Column(String(20), ForeignKey("bonds.id"), nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
-    type = Column(String(20), nullable=False)     # BLOCKCHAIN / EMAIL / SMS / SYSTEM
+    type = Column(String(20), nullable=False)     # BLOCKCHAIN / SYSTEM
     message = Column(Text, nullable=False)
     severity = Column(String(20), nullable=False)  # critical / warning / success / info
     status = Column(String(20), default="PENDING") # DELIVERED / CONFIRMED / LOGGED / FAILED

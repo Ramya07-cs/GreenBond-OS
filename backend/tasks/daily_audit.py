@@ -9,7 +9,6 @@ from services.nasa import nasa_service
 from services.pr_engine import pr_engine
 from services.penalty_engine import penalty_engine
 from services.blockchain import blockchain_service
-from services.alerts import alert_service
 from services.audit import audit_service
 from tasks.celery_app import celery_app
 from redis_client import redis_client
@@ -84,6 +83,11 @@ def run_daily_audit(self, target_date: str = None, bond_id: str = None):
 def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict):
     """Run the complete audit pipeline for a single bond."""
     import asyncio
+
+    # Skip if a completed (COMPLIANT or PENALTY) audit already exists for this+date
+    # AND it already has a blockchain TX hash (fully anchored).
+    # If tx_hash is None, the record was written but the blockchain TX failed
+    # (e.g. out-of-gas) — fall through so we retry the blockchain write.
     already_done = (
         db.query(AuditLog)
         .filter(
@@ -101,12 +105,18 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
             )
             return
         else:
-
+            # Record exists with verdict but no TX hash — the blockchain write
+            # failed previously (e.g. out-of-gas). Retry ONLY the blockchain TX
+            # using the rates already stored in the audit log. Do NOT re-run
+            # penalty_engine against the bond — current_rate has already been
+            # updated so we'd compute rate_before == rate_after (no change).
             logger.info(
                 f"  {bond.id} on {audit_date}: has {already_done.verdict} record but NO tx_hash "
                 f"(prior blockchain write failed). Retrying blockchain TX only."
             )
-            if already_done.rate_before is not None and already_done.rate_after is not None:
+            if (already_done.rate_before is not None
+                    and already_done.rate_after is not None
+                    and float(already_done.rate_after) != float(already_done.rate_before)):
                 trigger_type = (
                     "PENALTY_TRIGGER" if already_done.verdict == "PENALTY"
                     else "RECOVERY_TRIGGER" if already_done.verdict == "RECOVERY"
@@ -204,19 +214,6 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
             "consecutive_missing": consecutive_missing,
         })
 
-        # Only alert on day 1 and every 3rd day — prevents email spam during catchup
-        should_alert = (consecutive_missing == 1) or (consecutive_missing % 3 == 0)
-        if should_alert:
-            alert_service.send_missing_data_alert(
-                bond_id=bond.id,
-                bond_name=bond.name,
-                missing_date=str(audit_date),
-                consecutive_missing=consecutive_missing,
-                issuer_email=bond.issuer_email,
-                issuer_phone=bond.issuer_phone,
-            )
-        else:
-            logger.info(f"  Skipping alert for {bond.id} — consecutive_missing={consecutive_missing}, not an alert day")
 
         # Log the missing data alert in DB
         audit_service.write_alert(
@@ -277,31 +274,8 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
             "tx_hash": tx_result["tx_hash"] if tx_result else None,
         })
 
-    # ── Step 7: Send alerts (if rate changed) ────────────────────────────────
+    # ── Step 7: Write alert record (if rate changed) ─────────────────────────
     if decision.rate_changed:
-        if decision.trigger_type == "PENALTY_TRIGGER":
-            alert_service.send_penalty_alert(
-                bond_id=bond.id,
-                bond_name=bond.name,
-                previous_rate=decision.previous_rate,
-                new_rate=decision.new_rate,
-                consecutive_days=decision.consecutive_penalty,
-                tx_hash=tx_result["tx_hash"] if tx_result else None,
-                issuer_email=bond.issuer_email,
-                issuer_phone=bond.issuer_phone,
-            )
-        elif decision.trigger_type == "RECOVERY_TRIGGER":
-            alert_service.send_recovery_alert(
-                bond_id=bond.id,
-                bond_name=bond.name,
-                previous_rate=decision.previous_rate,
-                base_rate=decision.new_rate,
-                consecutive_days=decision.consecutive_compliant,
-                tx_hash=tx_result["tx_hash"] if tx_result else None,
-                issuer_email=bond.issuer_email,
-                issuer_phone=bond.issuer_phone,
-            )
-
         audit_service.write_alert(
             db=db,
             bond_id=bond.id,

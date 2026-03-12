@@ -8,6 +8,7 @@ from pydantic import BaseModel, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from models import Alert, AuditLog, Bond, BondStatus, ProductionEntry
 from redis_client import redis_client
@@ -16,8 +17,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/bonds", tags=["bonds"])
 
 # Cache TTLs
-BOND_CACHE_TTL = 300          # 5 minutes — bond metadata changes rarely
-DASHBOARD_CACHE_TTL = 120     # 2 minutes — KPI summary
+BOND_CACHE_TTL = 30           # 30 seconds
+CACHE_VERSION = "v2"           # Bump this after schema changes to auto-invalidate old cached responses
+DASHBOARD_CACHE_TTL = 30      # 30 seconds
 
 
 def _seconds_until_midnight_utc() -> int:
@@ -29,11 +31,14 @@ def _seconds_until_midnight_utc() -> int:
 
 def invalidate_bond_caches(bond_id: str):
     keys_to_delete = [
-        f"bond:detail:{bond_id}",
+        f"bond:detail:{CACHE_VERSION}:{bond_id}",
         f"bond:pr_today:{bond_id}",
-        "bonds:list",
+        f"bonds:list:{CACHE_VERSION}",
         "dashboard:summary",
-        "health:full_check",   # Health check references active bonds
+        "health:full_check",
+        "alerts:digest:7",
+        "alerts:digest:14",
+        "alerts:digest:30",
     ]
     # Also clear any timeseries caches for this bond
     pattern_keys = redis_client.keys(f"bond:timeseries:{bond_id}:*")
@@ -55,8 +60,6 @@ class BondCreate(BaseModel):
     base_rate: float
     tvl: int
     maturity_date: date
-    issuer_email: Optional[str] = None
-    issuer_phone: Optional[str] = None
 
     @model_validator(mode="after")
     def maturity_must_be_today_or_later(self):
@@ -84,6 +87,8 @@ class BondOut(BaseModel):
     today_pr_date: Optional[date] = None   # date of the latest real audit — lets frontend detect stale PR
     consecutive_penalty: int = 0
     consecutive_compliant: int = 0
+    penalty_days_threshold: int = 3
+    recovery_days_threshold: int = 5
     registered_on_chain: bool = False
     registration_tx_hash: Optional[str] = None
     registration_block: Optional[int] = None
@@ -120,6 +125,8 @@ def _enrich_bond(bond: Bond, db: Session) -> BondOut:
     out.today_pr_date = latest_real_log.date if latest_real_log else None
     out.consecutive_penalty = latest_log.consecutive_penalty if latest_log else 0
     out.consecutive_compliant = latest_log.consecutive_compliant if latest_log else 0
+    out.penalty_days_threshold = settings.CONSECUTIVE_PENALTY_DAYS
+    out.recovery_days_threshold = settings.CONSECUTIVE_RECOVERY_DAYS
     return out
 
 
@@ -129,7 +136,7 @@ def _enrich_bond(bond: Bond, db: Session) -> BondOut:
 def list_bonds(db: Session = Depends(get_db)):
     """All bonds with latest PR and streak state. Cached 5 min."""
 
-    cache_key = "bonds:list"
+    cache_key = f"bonds:list:{CACHE_VERSION}"
     cached = redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
@@ -179,7 +186,7 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 def get_bond(bond_id: str, db: Session = Depends(get_db)):
     """Single bond with latest PR. Cached 5 min per bond."""
 
-    cache_key = f"bond:detail:{bond_id}"
+    cache_key = f"bond:detail:{CACHE_VERSION}:{bond_id}"
     cached = redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
@@ -242,7 +249,7 @@ def create_bond(data: BondCreate, db: Session = Depends(get_db)):
         logger.error(f"Blockchain registration failed for {bond.id}: {e}")
 
     # Invalidate list cache so new bond appears immediately
-    redis_client.delete("bonds:list", "dashboard:summary")
+    redis_client.delete(f"bonds:list:{CACHE_VERSION}", "dashboard:summary")
 
     bond_out = BondOut.model_validate(bond)
     bond_out.blockchain_warning = blockchain_warning
@@ -302,7 +309,7 @@ def get_timeseries(
         }
         for log in logs
     ]
-   
+    
     _last_rate = float(bond.base_rate)
     _interest_points = {}
     for log in sorted(logs, key=lambda l: l.date):
@@ -333,7 +340,7 @@ def get_timeseries(
     }
 
     # Cache until midnight — data complete for the day after 6 AM audit
-    redis_client.setex(cache_key, _seconds_until_midnight_utc(), json.dumps(response, default=str))
+    redis_client.setex(cache_key, 30, json.dumps(response, default=str))
     return response
 
 @router.delete("/{bond_id}", status_code=200)
@@ -353,10 +360,10 @@ def delete_bond(bond_id: str, db: Session = Depends(get_db)):
     # Clear all cache keys for this bond
     pattern_keys = redis_client.keys(f"bond:*:{bond_id}*")
     keys_to_delete = [
-        f"bond:detail:{bond_id}",
+        f"bond:detail:{CACHE_VERSION}:{bond_id}",
         f"bond:pr_today:{bond_id}",
         f"bond:timeseries:{bond_id}",
-        "bonds:list",
+        f"bonds:list:{CACHE_VERSION}",
         "dashboard:summary",
     ] + (pattern_keys if pattern_keys else [])
     redis_client.delete(*keys_to_delete)
@@ -377,5 +384,5 @@ def fix_bond_registration(bond_id: str, tx_hash: str, block_number: int = None, 
         bond.registration_block = block_number
     db.commit()
 
-    redis_client.delete("bonds:list", "dashboard:summary", f"bond:detail:{bond_id}")
+    redis_client.delete(f"bonds:list:{CACHE_VERSION}", "dashboard:summary", f"bond:detail:{CACHE_VERSION}:{bond_id}")
     return {"bond_id": bond_id, "tx_hash": bond.registration_tx_hash, "block_number": bond.registration_block, "status": "updated"}

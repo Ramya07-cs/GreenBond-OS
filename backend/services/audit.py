@@ -8,13 +8,7 @@ from services.penalty_engine import PenaltyDecision
 
 logger = logging.getLogger(__name__)
 
-
 class AuditService:
-    """
-    Writes the results of each daily audit to PostgreSQL.
-    Creates audit_log and alert records with blockchain proof.
-    """
-
     def write_audit_log(
         self,
         db: Session,
@@ -24,12 +18,6 @@ class AuditService:
         penalty_decision: PenaltyDecision,
         tx_result: Optional[dict] = None,
     ) -> AuditLog:
-        """Persist a single day's audit record to the database."""
-
-        # Guard: if a completed record already exists for this bond+date, only
-        # skip if it already has a blockchain TX hash (fully anchored).
-        # If tx_hash is None, the prior blockchain write failed (e.g. out-of-gas)
-        # and we should update the record with the new TX result.
         completed = (
             db.query(AuditLog)
             .filter(
@@ -74,7 +62,6 @@ class AuditService:
         )
 
         if existing_all:
-            # Keep the oldest record, delete all duplicates
             log = existing_all[0]
             for duplicate in existing_all[1:]:
                 logger.warning(
@@ -126,8 +113,6 @@ class AuditService:
         block_number: Optional[int] = None,
         recipient: Optional[str] = None,
     ) -> Alert:
-        """Persist an alert record to the database."""
-
         alert = Alert(
             bond_id=bond_id,
             type=alert_type,
@@ -170,7 +155,6 @@ class AuditService:
         if last:
             return last.consecutive_penalty or 0, last.consecutive_compliant or 0
         return 0, 0
-
 
     def write_audit_log_pending(
         self,

@@ -39,7 +39,6 @@ class PenaltyEngine:
             new_consecutive_compliant = consecutive_compliant + 1
             new_consecutive_penalty = 0
         # IGNORED: leave both streaks unchanged
-
         # Check for penalty trigger
         if (
             pr_verdict == "PENALTY"
