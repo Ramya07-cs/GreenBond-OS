@@ -5,7 +5,9 @@ export function useBonds() {
   return useQuery({
     queryKey: ["bonds"],
     queryFn: fetchBonds,
-    refetchInterval: 60_000,  // Auto-refresh every 60s
+    refetchInterval: 30_000,
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -15,6 +17,8 @@ export function useBond(id) {
     queryFn: () => fetchBond(id),
     enabled: !!id,
     refetchInterval: 30_000,
+    staleTime: 0,        // Always consider data stale — refetch on every mount/focus
+    gcTime: 0,           // Don't keep old data in memory between navigations
   });
 }
 

@@ -1,14 +1,15 @@
 export default function StreakTracker({ bond }) {
   const isP = bond.status === "PENALTY";
   const streakTarget   = bond.penalty_days_threshold  ?? 3;
-  const recoveryTarget = bond.recovery_days_threshold ?? 7;
-
+  const recoveryTarget = bond.recovery_days_threshold ?? 5;
+  const effectiveStreakTarget   = Math.max(streakTarget, bond.consecutive_penalty  ?? 0);
+  const effectiveRecoveryTarget = recoveryTarget; 
   const penaltyDays   = bond.consecutive_penalty  ?? 0;
   const compliantDays = bond.consecutive_compliant ?? 0;
 
-  const penaltyFill = Math.min(penaltyDays, streakTarget);
+  const penaltyFill = Math.min(penaltyDays, effectiveStreakTarget);
 
-  const compliantBarLength = isP ? recoveryTarget : Math.max(compliantDays, 7);
+  const compliantBarLength = isP ? recoveryTarget : Math.max(compliantDays, recoveryTarget);
   const compliantFill      = isP ? Math.min(compliantDays, recoveryTarget) : compliantDays;
 
   // Badge shows the dominant state:
@@ -33,9 +34,9 @@ export default function StreakTracker({ bond }) {
           </div>
           <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: isP ? "var(--red)" : penaltyDays > 0 ? "var(--amber)" : "var(--green)" }}>
             {isP
-              ? `${penaltyDays}/${streakTarget} days triggered`
+              ? `${penaltyDays}/${effectiveStreakTarget} days triggered`
               : penaltyDays > 0
-                ? `${penaltyDays}/${streakTarget} penalty days`
+                ? `${penaltyDays}/${effectiveStreakTarget} penalty days`
                 : `${compliantDays} day${compliantDays !== 1 ? "s" : ""} above threshold`}
           </div>
         </div>
@@ -46,14 +47,14 @@ export default function StreakTracker({ bond }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase" }}>🔴 Penalty Streak</div>
           <div style={{ fontSize: 9, fontFamily: "var(--mono)", color: penaltyDays > 0 ? "var(--red)" : "var(--text3)", fontWeight: 700 }}>
-            {penaltyDays} / {streakTarget}
+            {penaltyDays} / {effectiveStreakTarget}
             <span style={{ color: "var(--text3)", fontWeight: 400, marginLeft: 6 }}>
-              {isP ? "· rate hiked" : penaltyDays === 0 ? "· clear" : `· ${streakTarget - penaltyDays} more to hike`}
+              {isP ? "· rate hiked" : penaltyDays === 0 ? "· clear" : `· ${effectiveStreakTarget - penaltyDays} more to hike`}
             </span>
           </div>
         </div>
         <div style={{ display: "flex", gap: 5 }}>
-          {Array.from({ length: streakTarget }).map((_, i) => (
+          {Array.from({ length: effectiveStreakTarget }).map((_, i) => (
             <div key={i} style={{
               flex: 1, height: 7, borderRadius: 3,
               background: i < penaltyFill ? "var(--red)" : "var(--border)",

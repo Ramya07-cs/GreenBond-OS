@@ -6,6 +6,13 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Blockchain calls (register, retry) can take 60-120s to confirm on-chain
+const blockchainApi = axios.create({
+  baseURL: "",
+  timeout: 150000,
+  headers: { "Content-Type": "application/json" },
+});
+
 // ── Bonds ──────────────────────────────────────────────────────────────────
 export const fetchBonds = () => api.get("/api/bonds").then((r) => r.data);
 export const fetchBond = (id) => api.get(`/api/bonds/${id}`).then((r) => r.data);
@@ -27,10 +34,13 @@ export const triggerCatchup = () =>
   api.post("/api/audit/catchup").then((r) => r.data);
 
 // ── Alerts ─────────────────────────────────────────────────────────────────
+export const fetchAlertDigest = (days = 7) =>
+  api.get(`/api/alerts/digest?days=${days}`).then((r) => r.data);
+
 export const fetchAlerts = (params) =>
   api.get("/api/alerts", { params }).then((r) => r.data);
 export const fetchAlertSummary = () =>
-  api.get("/api/alerts/summary").then((r) => r.data);
+  api.get("/api/alerts/unread/count").then((r) => ({ unread_critical: r.data.count }));
 
 // ── Production ─────────────────────────────────────────────────────────────
 export const submitManualEntry = (data) =>
@@ -46,7 +56,7 @@ export const fetchBlockchainStatus = () =>
 export const fetchTransaction = (hash) =>
   api.get(`/api/blockchain/tx/${hash}`).then((r) => r.data);
 export const registerBondOnChain = (bondId) =>
-  api.post(`/api/blockchain/register/${bondId}`).then((r) => r.data);
+  blockchainApi.post(`/api/blockchain/register/${bondId}`).then((r) => r.data);
 export const setRegistrationTx = (bondId, txHash, blockNumber = null) => {
   const params = { tx_hash: txHash };
   if (blockNumber) params.block_number = blockNumber;

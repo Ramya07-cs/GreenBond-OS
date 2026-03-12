@@ -477,7 +477,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                             {log.rate_before}% {rateChanged ? `→ ${log.rate_after}%` : ""}
                           </span>
                         </div>
-                        {log.blockchain_tx_hash && (
+                        {log.blockchain_tx_hash && log.rate_after !== log.rate_before && (
                           <div style={{ marginTop: 5, fontSize: 10, color: "var(--blue)", fontFamily: "var(--mono)", cursor: "pointer" }} onClick={() => setTxModal(true)}>
                             🔗 {log.blockchain_tx_hash.slice(0, 22)}... ↗
                           </div>

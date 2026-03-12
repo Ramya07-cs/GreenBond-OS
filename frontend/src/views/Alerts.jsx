@@ -1,100 +1,290 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchAlerts, fetchAlertSummary } from "../api";
+import { fetchAlertDigest } from "../api";
 
-const SEVERITY_COLOR = {
-  critical: "var(--red)",
-  warning:  "var(--amber)",
-  success:  "var(--green)",
-  info:     "var(--blue)",
-};
-const SEVERITY_DIM = {
-  critical: "var(--red-dim)",
-  warning:  "var(--amber-dim)",
-  success:  "var(--green-dim)",
-  info:     "rgba(33,150,243,.08)",
-};
-const TYPE_ICON = { BLOCKCHAIN: "🔗", EMAIL: "📩", SMS: "📱", SYSTEM: "⚙️" };
-const TYPE_COLOR = { BLOCKCHAIN: "var(--cyan)", EMAIL: "var(--blue)", SMS: "var(--amber)", SYSTEM: "var(--slate)" };
+const fetchDigest = (days) => fetchAlertDigest(days);
 
-function Badge({ label, color, dim, border }) {
+const VERDICT_COLOR = {
+  PENALTY:   "var(--red)",
+  COMPLIANT: "var(--green)",
+  RECOVERY:  "var(--cyan)",
+  IGNORED:   "var(--amber)",
+  PENDING:   "var(--slate)",
+};
+const VERDICT_DIM = {
+  PENALTY:   "rgba(255,61,61,.12)",
+  COMPLIANT: "rgba(0,230,118,.10)",
+  RECOVERY:  "rgba(0,188,212,.10)",
+  IGNORED:   "rgba(255,179,0,.10)",
+  PENDING:   "rgba(84,110,122,.10)",
+};
+
+function VerdictBadge({ v }) {
   return (
     <span style={{
-      padding: "2px 8px", borderRadius: 100, fontSize: 9, fontWeight: 700,
-      background: dim || `${color}18`, color, border: `1px solid ${border || color + "33"}`,
-      letterSpacing: ".06em", whiteSpace: "nowrap",
-    }}>{label}</span>
+      fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 100,
+      letterSpacing: ".07em", whiteSpace: "nowrap",
+      color: VERDICT_COLOR[v] || "var(--text2)",
+      background: VERDICT_DIM[v] || "var(--card2)",
+      border: `1px solid ${(VERDICT_COLOR[v] || "var(--border)") + "44"}`,
+    }}>{v}</span>
   );
 }
 
-function FilterChip({ label, active, onClick }) {
+function Section({ title, count, accent, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <button onClick={onClick} style={{
-      padding: "4px 12px", borderRadius: 100, fontSize: 10, fontWeight: 600,
-      background: active ? "var(--blue)" : "var(--card2)",
-      color: active ? "#fff" : "var(--text2)",
-      border: `1px solid ${active ? "var(--blue)" : "var(--border)"}`,
-      cursor: "pointer", fontFamily: "var(--mono)", transition: "all .15s",
-    }}>{label}</button>
+    <div style={{ borderTop: "1px solid var(--border)" }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "9px 14px", cursor: "pointer",
+          background: open ? "rgba(255,255,255,.02)" : "transparent",
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700, color: accent, letterSpacing: ".08em", textTransform: "uppercase", flex: 1 }}>
+          {title}
+        </span>
+        {count != null && (
+          <span style={{
+            fontSize: 9, padding: "1px 7px", borderRadius: 100, fontWeight: 700,
+            background: count > 0 ? `${accent}22` : "var(--card2)",
+            color: count > 0 ? accent : "var(--text3)",
+            border: `1px solid ${count > 0 ? accent + "44" : "var(--border)"}`,
+          }}>{count}</span>
+        )}
+        <span style={{ fontSize: 10, color: "var(--text3)" }}>{open ? "▲" : "▼"}</span>
+      </div>
+      {open && <div style={{ padding: "0 14px 12px" }}>{children}</div>}
+    </div>
+  );
+}
+
+function BondCard({ bond, daysLabel }) {
+  const isMaturityWarning = bond.maturity_status === "SOON" || bond.maturity_status === "DUE";
+  const borderColor = bond.status === "PENALTY"
+    ? "rgba(255,61,61,.25)"
+    : isMaturityWarning ? "rgba(255,179,0,.3)"
+    : "var(--border)";
+
+  return (
+    <div style={{
+      background: "var(--card)",
+      border: `1px solid ${borderColor}`,
+      borderRadius: "var(--r)",
+      overflow: "hidden",
+      marginBottom: 12,
+    }}>
+      {/* Bond header */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "12px 16px",
+        background: bond.status === "PENALTY" ? "rgba(255,61,61,.04)" : "var(--card2)",
+        borderBottom: "1px solid var(--border)",
+        flexWrap: "wrap", gap: 8,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: 13, color: "var(--text)" }}>
+            {bond.bond_id}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--text2)" }}>{bond.bond_name}</span>
+          <VerdictBadge v={bond.status} />
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em" }}>Current Rate</div>
+            <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "var(--mono)", color: bond.current_rate > bond.base_rate ? "var(--red)" : "var(--green)" }}>
+              {bond.current_rate}%
+            </div>
+          </div>
+          {bond.maturity_date && (
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em" }}>Maturity</div>
+              <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "var(--mono)", color: isMaturityWarning ? "var(--amber)" : "var(--text2)" }}>
+                {bond.maturity_date}
+                {bond.days_to_maturity != null && (
+                  <span style={{ marginLeft: 6, fontSize: 9, color: isMaturityWarning ? "var(--amber)" : "var(--text3)" }}>
+                    {bond.maturity_status === "MATURED" ? "✓ MATURED"
+                      : bond.maturity_status === "DUE" ? "⚠ DUE"
+                      : bond.maturity_status === "SOON" ? `⚠ ${bond.days_to_maturity}d left`
+                      : `${bond.days_to_maturity}d`}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Streak row */}
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)" }}>
+        {[
+          { l: `Penalty Days (${daysLabel})`, v: bond.total_penalty, c: bond.total_penalty > 0 ? "var(--red)" : "var(--text2)" },
+          { l: `Compliant Days (${daysLabel})`, v: bond.total_compliant, c: bond.total_compliant > 0 ? "var(--green)" : "var(--text2)" },
+          { l: "Current Streak", v: bond.penalty_streak > 0 ? `${bond.penalty_streak}d penalty` : `${bond.compliant_streak}d compliant`, c: bond.penalty_streak > 0 ? "var(--red)" : "var(--green)" },
+          { l: "Missing Days", v: bond.total_missing, c: bond.total_missing > 0 ? "var(--amber)" : "var(--text2)" },
+        ].map((s, i) => (
+          <div key={i} style={{ flex: 1, padding: "8px 14px", borderRight: i < 3 ? "1px solid var(--border)" : "none" }}>
+            <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 3 }}>{s.l}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "var(--mono)", color: s.c }}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Daily Audit Log */}
+      <Section title="Daily Audit Log" count={bond.audit_rows.length} accent="var(--text2)" defaultOpen={true}>
+        {bond.audit_rows.length === 0 ? (
+          <div style={{ fontSize: 11, color: "var(--text3)", padding: "8px 0" }}>No audits in this period.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+              <thead>
+                <tr>
+                  {["Date", "Verdict", "PR", "Rate Before", "Rate After", "TX"].map(h => (
+                    <th key={h} style={{ padding: "6px 8px", textAlign: "left", color: "var(--text3)", fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", fontSize: 8, borderBottom: "1px solid var(--border)" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bond.audit_rows.map((r, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.03)" }}>
+                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: "var(--text)" }}>{r.date}</td>
+                    <td style={{ padding: "6px 8px" }}><VerdictBadge v={r.verdict} /></td>
+                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: r.pr != null ? (r.pr >= 0.75 ? "var(--green)" : "var(--red)") : "var(--text3)" }}>
+                      {r.pr != null ? `${(r.pr * 100).toFixed(1)}%` : "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: "var(--text2)" }}>{r.rate_before != null ? `${r.rate_before}%` : "—"}</td>
+                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: r.rate_after !== r.rate_before && r.rate_after != null ? "var(--amber)" : "var(--text2)" }}>
+                      {r.rate_after != null ? `${r.rate_after}%` : "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px" }}>
+                      {r.tx_hash
+                        ? <a href={`https://amoy.polygonscan.com/tx/${r.tx_hash}`} target="_blank" rel="noreferrer" style={{ fontFamily: "var(--mono)", color: "var(--blue)", fontSize: 9, textDecoration: "none" }}>🔗 {r.tx_hash.slice(0, 12)}…</a>
+                        : <span style={{ color: "var(--text3)" }}>—</span>
+                      }
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      {/* Blockchain TXes */}
+      <Section title="Blockchain TXes" count={bond.blockchain_txes.length} accent="var(--cyan)" defaultOpen={bond.blockchain_txes.length > 0}>
+        {bond.blockchain_txes.length === 0 ? (
+          <div style={{ fontSize: 11, color: "var(--text3)", padding: "8px 0" }}>No on-chain TXes in this period.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {bond.blockchain_txes.map((tx, i) => (
+              <div key={i} style={{ background: "var(--card2)", border: "1px solid rgba(0,188,212,.2)", borderRadius: "var(--r2)", padding: "10px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <VerdictBadge v={tx.verdict} />
+                  <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "var(--text)" }}>{tx.date}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+                  {[
+                    { l: "TX Hash", v: tx.tx_hash?.slice(0, 18) + "…", link: `https://amoy.polygonscan.com/tx/${tx.tx_hash}` },
+                    { l: "Block", v: tx.block_number?.toLocaleString() || "—" },
+                    { l: "Gas Used", v: tx.gas_used?.toLocaleString() || "—" },
+                    { l: "Rate", v: tx.rate_before != null ? `${tx.rate_before}% → ${tx.rate_after}%` : "—" },
+                  ].map(f => (
+                    <div key={f.l} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "5px 8px" }}>
+                      <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 2 }}>{f.l}</div>
+                      {f.link
+                        ? <a href={f.link} target="_blank" rel="noreferrer" style={{ fontSize: 9, color: "var(--blue)", fontFamily: "var(--mono)", textDecoration: "none" }}>{f.v} ↗</a>
+                        : <div style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--cyan)", fontWeight: 600 }}>{f.v}</div>
+                      }
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* Missing Production */}
+      <Section title="Missing Production Days" count={bond.missing_days.length} accent="var(--amber)" defaultOpen={bond.missing_days.length > 0}>
+        {bond.missing_days.length === 0 ? (
+          <div style={{ fontSize: 11, color: "var(--green)", padding: "8px 0" }}>✓ No missing production data in this period.</div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {bond.missing_days.map((d, i) => (
+              <span key={i} style={{ fontSize: 10, fontFamily: "var(--mono)", padding: "3px 9px", borderRadius: 100, background: "rgba(255,179,0,.1)", color: "var(--amber)", border: "1px solid rgba(255,179,0,.25)" }}>
+                {d.date}
+              </span>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* Maturity */}
+      {bond.maturity_date && (
+        <Section title="Maturity" accent={isMaturityWarning ? "var(--amber)" : "var(--text3)"} defaultOpen={isMaturityWarning}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+            {[
+              { l: "Maturity Date", v: bond.maturity_date },
+              { l: "Status", v: bond.maturity_status },
+              { l: "Days Remaining", v: bond.maturity_status === "MATURED" ? "—" : `${bond.days_to_maturity}d` },
+            ].map(f => (
+              <div key={f.l} style={{ background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "8px 10px" }}>
+                <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{f.l}</div>
+                <div style={{ fontSize: 12, fontFamily: "var(--mono)", fontWeight: 700, color: isMaturityWarning ? "var(--amber)" : "var(--text)" }}>{f.v}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+    </div>
   );
 }
 
 export default function Alerts() {
-  const [filterSeverity, setFilterSeverity] = useState("all");
-  const [filterType, setFilterType] = useState("all");
-  const [filterBond, setFilterBond] = useState("all");
-  const [collapseSystem, setCollapseSystem] = useState(true);
+  const [days, setDays] = useState(7);
 
-  const { data: summary } = useQuery({ queryKey: ["alert-summary"], queryFn: fetchAlertSummary });
-  const { data, isLoading } = useQuery({
-    queryKey: ["alerts"],
-    queryFn: () => fetchAlerts({ limit: 200 }),
-    refetchInterval: 30000,
+  const { data: digest, isLoading } = useQuery({
+    queryKey: ["alert-digest", days],
+    queryFn: () => fetchDigest(days),
+    refetchInterval: 60000,
   });
-  const alerts = data?.alerts || [];
 
-  // Derive unique bond ids for filter
-  const bondIds = useMemo(() => [...new Set(alerts.map(a => a.bond_id).filter(Boolean))], [alerts]);
-
-  // Collapse repeated SYSTEM messages into one with a count
-  const dedupedAlerts = useMemo(() => {
-    if (!collapseSystem) return alerts;
-    const seen = new Map();
-    const out = [];
-    for (const a of alerts) {
-      if (a.type === "SYSTEM") {
-        // Key = bond_id + normalized message (strip the date suffix to group same-type warnings)
-        const key = `${a.bond_id}::${a.message.replace(/\d{4}-\d{2}-\d{2}/g, "DATE")}`;
-        if (seen.has(key)) {
-          seen.get(key).count++;
-        } else {
-          const entry = { ...a, count: 1 };
-          seen.set(key, entry);
-          out.push(entry);
-        }
-      } else {
-        out.push({ ...a, count: 1 });
-      }
-    }
-    return out;
-  }, [alerts, collapseSystem]);
-
-  const filtered = useMemo(() => dedupedAlerts.filter(a => {
-    if (filterSeverity !== "all" && a.severity !== filterSeverity) return false;
-    if (filterType !== "all" && a.type !== filterType) return false;
-    if (filterBond !== "all" && a.bond_id !== filterBond) return false;
-    return true;
-  }), [dedupedAlerts, filterSeverity, filterType, filterBond]);
+  const bonds = digest || [];
+  const totalPenalty = bonds.reduce((s, b) => s + b.total_penalty, 0);
+  const totalMissing = bonds.reduce((s, b) => s + b.total_missing, 0);
+  const totalTxes = bonds.reduce((s, b) => s + b.blockchain_txes.length, 0);
+  const maturingSoon = bonds.filter(b => b.maturity_status === "SOON" || b.maturity_status === "DUE").length;
+  const daysLabel = `${days}d`;
 
   return (
     <div>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text2)" }}>
+          📋 Alert Center
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {[7, 14, 30].map(d => (
+            <button key={d} onClick={() => setDays(d)} style={{
+              padding: "4px 12px", borderRadius: 100, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              background: days === d ? "var(--blue)" : "var(--card2)",
+              color: days === d ? "#fff" : "var(--text2)",
+              border: `1px solid ${days === d ? "var(--blue)" : "var(--border)"}`,
+              fontFamily: "var(--mono)",
+            }}>Last {d}d</button>
+          ))}
+        </div>
+      </div>
+
       {/* KPI row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
         {[
-          { l: "Critical",     v: summary?.by_severity?.critical || 0,                          c: "var(--red)" },
-          { l: "Blockchain TXs", v: alerts.filter(a => a.type === "BLOCKCHAIN").length,          c: "var(--cyan)" },
-          { l: "Warnings",     v: alerts.filter(a => a.severity === "warning").length,           c: "var(--amber)" },
-          { l: "Total",        v: summary?.total || alerts.length,                               c: "var(--text)" },
+          { l: "Penalty Days",    v: totalPenalty,  c: totalPenalty > 0 ? "var(--red)" : "var(--text2)" },
+          { l: "Blockchain TXes", v: totalTxes,     c: "var(--cyan)" },
+          { l: "Missing Days",    v: totalMissing,  c: totalMissing > 0 ? "var(--amber)" : "var(--text2)" },
+          { l: "Maturing Soon",   v: maturingSoon,  c: maturingSoon > 0 ? "var(--amber)" : "var(--text2)" },
         ].map(k => (
           <div key={k.l} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: "14px 16px", position: "relative", overflow: "hidden" }}>
             <div style={{ fontSize: 9, letterSpacing: ".15em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 8 }}>{k.l}</div>
@@ -104,120 +294,13 @@ export default function Alerts() {
         ))}
       </div>
 
-      {/* Filters */}
-      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: "12px 16px", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 9, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em", fontWeight: 700, marginRight: 4 }}>SEVERITY</span>
-          {["all", "critical", "warning", "success"].map(s => (
-            <FilterChip key={s} label={s === "all" ? "All" : s} active={filterSeverity === s} onClick={() => setFilterSeverity(s)} />
-          ))}
-          <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
-          <span style={{ fontSize: 9, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em", fontWeight: 700, marginRight: 4 }}>TYPE</span>
-          {["all", "BLOCKCHAIN", "SYSTEM", "EMAIL", "SMS"].map(t => (
-            <FilterChip key={t} label={t === "all" ? "All" : t} active={filterType === t} onClick={() => setFilterType(t)} />
-          ))}
-          {bondIds.length > 0 && (
-            <>
-              <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
-              <span style={{ fontSize: 9, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em", fontWeight: 700, marginRight: 4 }}>BOND</span>
-              <FilterChip label="All" active={filterBond === "all"} onClick={() => setFilterBond("all")} />
-              {bondIds.map(id => (
-                <FilterChip key={id} label={id} active={filterBond === id} onClick={() => setFilterBond(id)} />
-              ))}
-            </>
-          )}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 9, color: "var(--text3)" }}>Collapse duplicate system alerts</span>
-            <button onClick={() => setCollapseSystem(v => !v)} style={{
-              width: 32, height: 18, borderRadius: 9, border: "none", cursor: "pointer",
-              background: collapseSystem ? "var(--green)" : "var(--border)",
-              position: "relative", transition: "background .2s",
-            }}>
-              <div style={{
-                position: "absolute", top: 2, left: collapseSystem ? 16 : 2,
-                width: 14, height: 14, borderRadius: "50%", background: "#fff",
-                transition: "left .2s",
-              }} />
-            </button>
-          </div>
-        </div>
-        <div style={{ marginTop: 8, fontSize: 10, color: "var(--text3)" }}>
-          Showing <strong style={{ color: "var(--text)" }}>{filtered.length}</strong> of <strong style={{ color: "var(--text)" }}>{alerts.length}</strong> alerts
-          {collapseSystem && alerts.filter(a=>a.type==="SYSTEM").length > 0 && (
-            <span style={{ color: "var(--amber)", marginLeft: 8 }}>
-              · {alerts.filter(a=>a.type==="SYSTEM").length - dedupedAlerts.filter(a=>a.type==="SYSTEM").length} system duplicates collapsed
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Alert List */}
+      {/* Bond cards */}
       {isLoading ? (
-        <div style={{ padding: 40, textAlign: "center", color: "var(--text2)", fontSize: 12 }}>Loading alerts...</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ padding: 40, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>
-          {alerts.length === 0 ? "No alerts recorded yet." : "No alerts match the current filters."}
-        </div>
+        <div style={{ padding: 40, textAlign: "center", color: "var(--text2)", fontSize: 12 }}>Loading digest…</div>
+      ) : bonds.length === 0 ? (
+        <div style={{ padding: 40, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>No bonds found.</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {filtered.map((a, i) => {
-            const sevColor = SEVERITY_COLOR[a.severity] || "var(--text2)";
-            const sevDim   = SEVERITY_DIM[a.severity]  || "var(--card2)";
-            const typeColor = TYPE_COLOR[a.type] || "var(--text2)";
-            return (
-              <div key={a.id ?? i} style={{
-                display: "flex", alignItems: "flex-start", gap: 12,
-                padding: "12px 14px", borderRadius: "var(--r2)",
-                border: `1px solid ${a.severity === "critical" ? "rgba(255,61,61,.25)" : a.severity === "success" ? "rgba(0,230,118,.15)" : "var(--border)"}`,
-                background: a.severity === "critical" ? "rgba(255,61,61,.04)" : "var(--card2)",
-              }}>
-                {/* Left: severity stripe */}
-                <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: sevColor, flexShrink: 0 }} />
-
-                {/* Icon */}
-                <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>{TYPE_ICON[a.type] || "📌"}</span>
-
-                {/* Content */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5, flex: 1 }}>
-                      {a.message}
-                      {a.count > 1 && (
-                        <span style={{ marginLeft: 8, fontSize: 9, padding: "1px 7px", borderRadius: 100,
-                          background: "rgba(255,179,0,.12)", color: "var(--amber)", border: "1px solid rgba(255,179,0,.25)", fontWeight: 700 }}>
-                          ×{a.count}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", gap: 5, flexShrink: 0, flexWrap: "wrap" }}>
-                      <Badge label={a.type} color={typeColor} />
-                      <Badge label={a.severity?.toUpperCase()} color={sevColor} dim={sevDim} />
-                      <Badge
-                        label={a.status}
-                        color={a.status === "CONFIRMED" || a.status === "DELIVERED" ? "var(--green)" : a.status === "FAILED" ? "var(--red)" : "var(--amber)"}
-                        dim={a.status === "CONFIRMED" || a.status === "DELIVERED" ? "var(--green-dim)" : a.status === "FAILED" ? "var(--red-dim)" : "var(--amber-dim)"}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 5, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "var(--mono)", color: "var(--cyan)" }}>{a.bond_id}</span>
-                    <span>{a.timestamp ? new Date(a.timestamp).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—"}</span>
-                  </div>
-                  {a.tx_hash && (
-                    <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <a href={`https://amoy.polygonscan.com/tx/${a.tx_hash}`} target="_blank" rel="noreferrer"
-                        style={{ fontSize: 10, color: "var(--blue)", fontFamily: "var(--mono)", textDecoration: "none" }}>
-                        🔗 {a.tx_hash.slice(0, 22)}… ↗
-                      </a>
-                      {a.gas_used && <span style={{ fontSize: 9, color: "var(--text3)" }}>Gas: {a.gas_used.toLocaleString()}</span>}
-                      {a.block_number && <span style={{ fontSize: 9, color: "var(--text3)" }}>Block #{a.block_number.toLocaleString()}</span>}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        bonds.map(bond => <BondCard key={bond.bond_id} bond={bond} daysLabel={daysLabel} />)
       )}
     </div>
   );

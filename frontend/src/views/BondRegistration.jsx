@@ -30,7 +30,7 @@ function Field({ n, label, hint, children }) {
 
 const INITIAL = {
   id: "", name: "", capacity_kw: "", lat: "", lng: "",
-  base_rate: "", tvl: "", maturity_date: "", issuer_email: "", issuer_phone: "",
+  base_rate: "", tvl: "", maturity_date: "",
 };
 
 export default function BondRegistration() {
@@ -87,8 +87,6 @@ export default function BondRegistration() {
       base_rate: parseFloat(form.base_rate),
       tvl: form.tvl ? parseInt(form.tvl) : undefined,
       maturity_date: form.maturity_date,
-      issuer_email: form.issuer_email || null,
-      issuer_phone: form.issuer_phone || null,
     });
   };
 
@@ -287,20 +285,6 @@ export default function BondRegistration() {
               {form.maturity_date && form.maturity_date < new Date().toISOString().split("T")[0] && (
                 <div style={{ fontSize: 10, color: "var(--red)", marginTop: 4 }}>⚠ Maturity date must be today or a future date.</div>
               )}
-            </Field>
-          </div>
-
-          {/* Section: Contact */}
-          <div style={{ fontSize: 9, letterSpacing: ".12em", color: "var(--text3)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", paddingBottom: 6, marginTop: 4 }}>
-            Issuer Contact (Optional)
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field n={9} label="Issuer Email">
-              <input type="email" placeholder="ops@example.com" value={form.issuer_email} onChange={set("issuer_email")} style={inputStyle} />
-            </Field>
-            <Field n={10} label="Issuer Phone">
-              <input type="tel" placeholder="+91-..." value={form.issuer_phone} onChange={set("issuer_phone")} style={inputStyle} />
             </Field>
           </div>
 
