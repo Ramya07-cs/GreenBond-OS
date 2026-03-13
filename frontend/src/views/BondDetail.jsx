@@ -47,7 +47,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
   // Find most recent audit that actually has a blockchain TX (not IGNORED/pending entries)
   const latestAudit = auditData?.logs?.find(l => l.blockchain_tx_hash) ?? auditData?.logs?.[0];
   // Most recent fully-computed audit — skips IGNORED/PENDING entries
-  const latestCompletedAudit = auditData?.logs?.find(l => l.verdict === "COMPLIANT" || l.verdict === "PENALTY");
+  const latestCompletedAudit = auditData?.logs?.find(l => l.verdict === "COMPLIANT" || l.verdict === "PENALTY" || l.verdict === "RECOVERY");
   const isP = bond.status === "PENALTY";
   const isM = bond.status === "MATURED";
 
@@ -102,7 +102,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
           <div style={{ fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 4 }}>Latest PR</div>
           {latestCompletedAudit ? (
             <>
-              <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: latestCompletedAudit.calculated_pr >= 0.75 ? "var(--green)" : "var(--red)" }}>
+              <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: latestCompletedAudit.calculated_pr >= 0.75 && latestCompletedAudit.calculated_pr <= 1.0 ? "var(--green)" : "var(--red)" }}>
                 {(latestCompletedAudit.calculated_pr * 100).toFixed(0)}%
               </div>
               <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 3, fontFamily: "var(--mono)" }}>{latestCompletedAudit.date}</div>
@@ -165,7 +165,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
             {[
-              { l: "Final Avg PR", v: bond.final_avg_pr ? `${(bond.final_avg_pr * 100).toFixed(1)}%` : "—", c: bond.final_avg_pr >= 0.75 ? "var(--green)" : "var(--red)" },
+              { l: "Final Avg PR", v: bond.final_avg_pr ? `${(bond.final_avg_pr * 100).toFixed(1)}%` : "—", c: bond.final_avg_pr >= 0.75 && bond.final_avg_pr <= 1.0 ? "var(--green)" : "var(--red)" },
               { l: "Total Penalty Days", v: bond.total_penalty_days ?? "—", c: bond.total_penalty_days > 0 ? "var(--red)" : "var(--green)" },
               { l: "Base Rate", v: `${bond.base_rate}%`, c: "var(--text2)" },
               { l: "TVL", v: bond.tvl ? `₹${(bond.tvl / 1e7).toFixed(2)} Cr` : "—", c: "var(--cyan)" },
@@ -295,7 +295,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                 {(auditData?.logs || []).filter(log => log.verdict !== "IGNORED").map((log, i) => (
                   <tr key={i}>
                     <td style={{ padding: "10px 12px", fontSize: 10, color: "var(--text3)", fontFamily: "var(--mono)", borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.date}</td>
-                    <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 12, color: log.calculated_pr >= 0.75 ? "var(--green)" : "var(--red)", fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.calculated_pr ? `${(log.calculated_pr * 100).toFixed(0)}%` : "—"}</td>
+                    <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 12, color: log.calculated_pr >= 0.75 && log.calculated_pr <= 1.0 ? "var(--green)" : "var(--red)", fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.calculated_pr ? `${(log.calculated_pr * 100).toFixed(0)}%` : "—"}</td>
                     <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--blue)", borderBottom: "1px solid rgba(255,255,255,.025)" }}>{log.nasa_ghi ? `${log.nasa_ghi} kWh/m²` : "—"}</td>
                     <td style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,.025)" }}><span style={{ fontSize: 10, fontWeight: 700, color: log.verdict === "PENALTY" ? "var(--red)" : log.verdict === "COMPLIANT" ? "var(--green)" : "var(--slate)" }}>{log.verdict}</span></td>
                     <td style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,.025)" }}>

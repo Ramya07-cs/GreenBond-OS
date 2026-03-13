@@ -107,7 +107,7 @@ export default function Dashboard({ onSelectBond }) {
                 <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12, color: b.current_rate > b.base_rate ? "var(--red)" : "var(--green)", fontWeight: 700 }}>
                   {b.current_rate}% {b.current_rate > b.base_rate && "↑"}
                 </td>
-                <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12, color: b.today_pr ? (b.today_pr >= 0.75 ? "var(--green)" : "var(--red)") : "var(--slate)" }}>
+                <td style={{ padding: "11px 12px", borderBottom: "1px solid rgba(255,255,255,.025)", fontFamily: "var(--mono)", fontSize: 12, color: b.today_pr ? (b.today_pr >= 0.75 && b.today_pr <= 1.0 ? "var(--green)" : "var(--red)") : "var(--slate)" }}>
                   {b.today_pr ? (
                     <div>
                       <div>{(b.today_pr * 100).toFixed(0)}%</div>

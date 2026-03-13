@@ -8,20 +8,20 @@ export default function GlassBox({ bond, auditLog }) {
   const verdict = auditLog?.verdict;
   const auditDate = auditLog?.date;
 
-  const hasRealAudit = auditLog && (verdict === "COMPLIANT" || verdict === "PENALTY");
+  const hasRealAudit = auditLog && (verdict === "COMPLIANT" || verdict === "PENALTY" || verdict === "RECOVERY");
   const isIgnored = auditLog && verdict === "IGNORED";
   const isPending = !auditLog;
 
   const headerColor = hasRealAudit
-    ? (verdict === "COMPLIANT" ? "var(--green)" : "var(--red)")
+    ? (verdict === "COMPLIANT" ? "var(--green)" : verdict === "RECOVERY" ? "var(--cyan)" : "var(--red)")
     : isIgnored ? "var(--amber)" : "var(--slate)";
 
   const headerBg = hasRealAudit
-    ? (verdict === "COMPLIANT" ? "rgba(0,230,118,.04)" : "rgba(255,61,61,.04)")
+    ? (verdict === "COMPLIANT" ? "rgba(0,230,118,.04)" : verdict === "RECOVERY" ? "rgba(0,188,212,.04)" : "rgba(255,61,61,.04)")
     : "rgba(84,110,122,.04)";
 
   const borderColor = hasRealAudit
-    ? (verdict === "COMPLIANT" ? "rgba(0,230,118,.15)" : "rgba(255,61,61,.2)")
+    ? (verdict === "COMPLIANT" ? "rgba(0,230,118,.15)" : verdict === "RECOVERY" ? "rgba(0,188,212,.2)" : "rgba(255,61,61,.2)")
     : "rgba(84,110,122,.2)";
 
   const rows = hasRealAudit ? [
@@ -65,23 +65,29 @@ export default function GlassBox({ bond, auditLog }) {
     {
       key: "Energy Deficit",
       value: pr && expectedKWh && actualKWh
-        ? pr >= 0.75
-          ? `None — produced ${((actualKWh - expectedKWh) > 0 ? "+" : "")}${(actualKWh - expectedKWh).toFixed(0)} kWh vs expected ${expectedKWh.toLocaleString()} kWh`
+        ? pr > 1.0
+          ? `None — but PR exceeded 100% (${(pr * 100).toFixed(1)}%), indicating a data anomaly`
+          : pr >= 0.75
+          ? `None — produced +${Math.abs(actualKWh - expectedKWh).toFixed(0)} kWh above expected ${expectedKWh.toLocaleString()} kWh`
           : `${(expectedKWh - actualKWh).toFixed(0)} kWh below expected output of ${expectedKWh.toLocaleString()} kWh`
         : "—",
-      ok: pr >= 0.75,
+      ok: pr >= 0.75 && pr <= 1.0,
     },
     {
       key: "Final Verdict",
       value: verdict === "COMPLIANT"
         ? `COMPLIANT — PR ${(pr * 100).toFixed(1)}% exceeds the 75% threshold`
+        : verdict === "RECOVERY"
+        ? `RECOVERY — PR ${(pr * 100).toFixed(1)}% exceeds threshold for 5th consecutive day, rate restored to base`
+        : pr > 1.0
+        ? `PENALTY — PR ${(pr * 100).toFixed(1)}% exceeds 100%, indicating manipulated or erroneous production data`
         : `PENALTY — PR ${(pr * 100).toFixed(1)}% is below the 75% threshold`,
       ok: verdict === "COMPLIANT",
       isVerdict: true,
     },
   ] : [];
 
-  const verdictColor = verdict === "COMPLIANT" ? "var(--green)" : verdict === "PENALTY" ? "var(--red)" : "var(--slate)";
+  const verdictColor = verdict === "COMPLIANT" ? "var(--green)" : verdict === "RECOVERY" ? "var(--cyan)" : verdict === "PENALTY" ? "var(--red)" : "var(--slate)";
 
   return (
     <div>
@@ -98,7 +104,7 @@ export default function GlassBox({ bond, auditLog }) {
             {isPending && "No Completed Audit Yet"}
 
             {hasRealAudit && (
-              <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 100, fontWeight: 700, background: verdict === "COMPLIANT" ? "rgba(0,230,118,.15)" : "rgba(255,61,61,.15)", color: verdict === "COMPLIANT" ? "var(--green)" : "var(--red)", border: `1px solid ${verdict === "COMPLIANT" ? "rgba(0,230,118,.3)" : "rgba(255,61,61,.3)"}` }}>
+              <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 100, fontWeight: 700, background: verdict === "COMPLIANT" ? "rgba(0,230,118,.15)" : verdict === "RECOVERY" ? "rgba(0,188,212,.15)" : "rgba(255,61,61,.15)", color: verdict === "COMPLIANT" ? "var(--green)" : verdict === "RECOVERY" ? "var(--cyan)" : "var(--red)", border: `1px solid ${verdict === "COMPLIANT" ? "rgba(0,230,118,.3)" : verdict === "RECOVERY" ? "rgba(0,188,212,.3)" : "rgba(255,61,61,.3)"}` }}>
                 {verdict}
               </span>
             )}

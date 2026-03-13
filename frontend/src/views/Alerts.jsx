@@ -122,7 +122,7 @@ function BondCard({ bond, daysLabel }) {
         {[
           { l: `Penalty Days (${daysLabel})`, v: bond.total_penalty, c: bond.total_penalty > 0 ? "var(--red)" : "var(--text2)" },
           { l: `Compliant Days (${daysLabel})`, v: bond.total_compliant, c: bond.total_compliant > 0 ? "var(--green)" : "var(--text2)" },
-          { l: "Current Streak", v: bond.penalty_streak > 0 ? `${bond.penalty_streak}d penalty` : `${bond.compliant_streak}d compliant`, c: bond.penalty_streak > 0 ? "var(--red)" : "var(--green)" },
+          { l: "Current Streak", v: (bond.penalty_streak ?? 0) > 0 ? `${bond.penalty_streak}d penalty` : `${bond.compliant_streak ?? 0}d compliant`, c: (bond.penalty_streak ?? 0) > 0 ? "var(--red)" : "var(--green)" },
           { l: "Missing Days", v: bond.total_missing, c: bond.total_missing > 0 ? "var(--amber)" : "var(--text2)" },
         ].map((s, i) => (
           <div key={i} style={{ flex: 1, padding: "8px 14px", borderRight: i < 3 ? "1px solid var(--border)" : "none" }}>
@@ -131,46 +131,6 @@ function BondCard({ bond, daysLabel }) {
           </div>
         ))}
       </div>
-
-      {/* Daily Audit Log */}
-      <Section title="Daily Audit Log" count={bond.audit_rows.length} accent="var(--text2)" defaultOpen={true}>
-        {bond.audit_rows.length === 0 ? (
-          <div style={{ fontSize: 11, color: "var(--text3)", padding: "8px 0" }}>No audits in this period.</div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
-              <thead>
-                <tr>
-                  {["Date", "Verdict", "PR", "Rate Before", "Rate After", "TX"].map(h => (
-                    <th key={h} style={{ padding: "6px 8px", textAlign: "left", color: "var(--text3)", fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", fontSize: 8, borderBottom: "1px solid var(--border)" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {bond.audit_rows.map((r, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.03)" }}>
-                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: "var(--text)" }}>{r.date}</td>
-                    <td style={{ padding: "6px 8px" }}><VerdictBadge v={r.verdict} /></td>
-                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: r.pr != null ? (r.pr >= 0.75 ? "var(--green)" : "var(--red)") : "var(--text3)" }}>
-                      {r.pr != null ? `${(r.pr * 100).toFixed(1)}%` : "—"}
-                    </td>
-                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: "var(--text2)" }}>{r.rate_before != null ? `${r.rate_before}%` : "—"}</td>
-                    <td style={{ padding: "6px 8px", fontFamily: "var(--mono)", color: r.rate_after !== r.rate_before && r.rate_after != null ? "var(--amber)" : "var(--text2)" }}>
-                      {r.rate_after != null ? `${r.rate_after}%` : "—"}
-                    </td>
-                    <td style={{ padding: "6px 8px" }}>
-                      {r.tx_hash
-                        ? <a href={`https://amoy.polygonscan.com/tx/${r.tx_hash}`} target="_blank" rel="noreferrer" style={{ fontFamily: "var(--mono)", color: "var(--blue)", fontSize: 9, textDecoration: "none" }}>🔗 {r.tx_hash.slice(0, 12)}…</a>
-                        : <span style={{ color: "var(--text3)" }}>—</span>
-                      }
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
 
       {/* Blockchain TXes */}
       <Section title="Blockchain TXes" count={bond.blockchain_txes.length} accent="var(--cyan)" defaultOpen={bond.blockchain_txes.length > 0}>
@@ -251,7 +211,7 @@ export default function Alerts() {
     refetchInterval: 60000,
   });
 
-  const bonds = digest || [];
+  const bonds = (digest || []).filter(b => b.status !== "MATURED");
   const totalPenalty = bonds.reduce((s, b) => s + b.total_penalty, 0);
   const totalMissing = bonds.reduce((s, b) => s + b.total_missing, 0);
   const totalTxes = bonds.reduce((s, b) => s + b.blockchain_txes.length, 0);
