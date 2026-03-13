@@ -54,6 +54,36 @@ def check_bond_maturity():
 
     return summary
 
+def recompute_matured_bond_stats(db: Session, bond: Bond):
+    """Recompute final_avg_pr and total_penalty_days for an already-MATURED bond.
+    Called after NASA lag catchup fills in previously IGNORED audit records."""
+    logger.info(f"[Maturity] Recomputing stats for already-matured bond {bond.id}")
+
+    stats = (
+        db.query(func.avg(AuditLog.calculated_pr).label("avg_pr"))
+        .filter(AuditLog.bond_id == bond.id, AuditLog.calculated_pr.isnot(None))
+        .first()
+    )
+    final_avg_pr = round(float(stats.avg_pr), 4) if stats and stats.avg_pr else None
+    total_penalty_days = (
+        db.query(func.count(AuditLog.id))
+        .filter(AuditLog.bond_id == bond.id, AuditLog.verdict == "PENALTY")
+        .scalar() or 0
+    )
+
+    bond.final_avg_pr = final_avg_pr
+    bond.total_penalty_days = total_penalty_days
+    db.flush()
+
+    redis_client.delete(
+        f"bond:detail:v2:{bond.id}", "bonds:list:v2", "dashboard:summary"
+    )
+    logger.info(
+        f"[Maturity] {bond.id} recomputed — "
+        f"avg PR: {final_avg_pr}, penalty days: {total_penalty_days}"
+    )
+    return {"final_avg_pr": final_avg_pr, "total_penalty_days": total_penalty_days}
+
 
 def _process_matured_bond(db: Session, bond: Bond):
     """Process a single bond reaching maturity."""

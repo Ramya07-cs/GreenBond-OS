@@ -1,146 +1,176 @@
-import json
 import logging
-from datetime import date, timedelta
-from typing import Optional
-
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-
+from typing import Optional
+from datetime import date as date_type
 from database import get_db
-from models import Alert, AuditLog, Bond, BondStatus
-from redis_client import redis_client
+from models import AuditLog
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/alerts", tags=["alerts"])
-
-DIGEST_TTL = 60  # seconds
+router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 
-@router.get("/digest")
-def get_alert_digest(
-    days: int = Query(default=7, le=30),
+@router.get("/")
+def get_audit_logs(
+    bond_id: Optional[str] = None,
+    verdict: Optional[str] = None,
+    limit: int = Query(default=50, le=500),
+    offset: int = 0,
     db: Session = Depends(get_db),
 ):
-    cache_key = f"alerts:digest:{days}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return json.loads(cached)
+    query = db.query(AuditLog)
+    if bond_id:
+        query = query.filter(AuditLog.bond_id == bond_id)
+    if verdict:
+        query = query.filter(AuditLog.verdict == verdict.upper())
 
-    since = date.today() - timedelta(days=days)
-    bonds = db.query(Bond).order_by(Bond.created_at.desc()).all()
+    total = query.count()
+    logs = query.order_by(AuditLog.date.desc()).offset(offset).limit(limit).all()
 
-    result = []
-    for bond in bonds:
-        # ── Audit logs for this bond in range ────────────────────────────────
-        logs = (
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "logs": [
+            {
+                "id": log.id,
+                "bond_id": log.bond_id,
+                "date": str(log.date),
+                "nasa_ghi": float(log.nasa_ghi) if log.nasa_ghi else None,
+                "actual_kwh": float(log.actual_kwh) if log.actual_kwh else None,
+                "expected_kwh": float(log.expected_kwh) if log.expected_kwh else None,
+                "calculated_pr": float(log.calculated_pr) if log.calculated_pr else None,
+                "verdict": log.verdict,
+                "consecutive_penalty": log.consecutive_penalty,
+                "consecutive_compliant": log.consecutive_compliant,
+                "rate_before": float(log.rate_before) if log.rate_before else None,
+                "rate_after": float(log.rate_after) if log.rate_after else None,
+                "blockchain_tx_hash": log.blockchain_tx_hash,
+                "block_number": log.block_number,
+                "gas_used": log.gas_used,
+            }
+            for log in logs
+        ],
+    }
+
+
+@router.post("/run")
+def trigger_manual_audit(
+    target_date: Optional[str] = None,
+    date: Optional[str] = None,          
+    bond_id: Optional[str] = None,
+    force: bool = False,                  # clears existing audit + Redis locks so re-audit runs
+    db: Session = Depends(get_db),
+):
+    from tasks.daily_audit import run_daily_audit
+    from redis_client import redis_client
+
+   
+    resolved_date = target_date or date
+    if force and resolved_date and bond_id:
+        deleted = (
             db.query(AuditLog)
-            .filter(AuditLog.bond_id == bond.id, AuditLog.date >= since)
-            .order_by(AuditLog.date.desc())
-            .all()
+            .filter(AuditLog.bond_id == bond_id, AuditLog.date == resolved_date)
+            .delete()
+        )
+        db.commit()
+        redis_client.delete(f"audit:lock:{bond_id}:{resolved_date}")
+        logger.info(
+            f"[ForceReaudit] Cleared {deleted} audit record(s) + locks "
+            f"for {bond_id} on {resolved_date}"
         )
 
-        # ── Blockchain TXes (audit logs that have a tx_hash) ─────────────────
-        blockchain_txes = [
-            {
-                "date": str(l.date),
-                "verdict": l.verdict,
-                "tx_hash": l.blockchain_tx_hash,
-                "block_number": l.block_number,
-                "gas_used": l.gas_used,
-                "rate_before": float(l.rate_before) if l.rate_before else None,
-                "rate_after": float(l.rate_after) if l.rate_after else None,
-            }
-            for l in logs if l.blockchain_tx_hash
-        ]
-
-        # ── Missing production days (IGNORED verdict = no production data) ───
-        missing_days = [
-            {"date": str(l.date), "verdict": l.verdict}
-            for l in logs if l.verdict == "IGNORED" or (l.actual_kwh is None and l.verdict != "PENDING")
-        ]
-
-        # ── Penalty streak info ───────────────────────────────────────────────
-        latest = logs[0] if logs else None
-        penalty_days = latest.consecutive_penalty if latest else 0
-        compliant_days = latest.consecutive_compliant if latest else 0
-
-        # ── Maturity info ─────────────────────────────────────────────────────
-        days_to_maturity = None
-        maturity_status = None
-        if bond.maturity_date:
-            delta = (bond.maturity_date - date.today()).days
-            days_to_maturity = delta
-            if bond.status == BondStatus.MATURED:
-                maturity_status = "MATURED"
-            elif delta <= 0:
-                maturity_status = "DUE"
-            elif delta <= 30:
-                maturity_status = "SOON"
-            else:
-                maturity_status = "OK"
-
-        # ── Daily audit summary rows ──────────────────────────────────────────
-        audit_rows = [
-            {
-                "date": str(l.date),
-                "verdict": l.verdict,
-                "pr": float(l.calculated_pr) if l.calculated_pr else None,
-                "rate_before": float(l.rate_before) if l.rate_before else None,
-                "rate_after": float(l.rate_after) if l.rate_after else None,
-                "tx_hash": l.blockchain_tx_hash,
-                "actual_kwh": float(l.actual_kwh) if l.actual_kwh else None,
-            }
-            for l in logs
-        ]
-
-        result.append({
-            "bond_id": bond.id,
-            "bond_name": bond.name,
-            "status": bond.status,
-            "current_rate": float(bond.current_rate),
-            "base_rate": float(bond.base_rate),
-            "maturity_date": str(bond.maturity_date) if bond.maturity_date else None,
-            "days_to_maturity": days_to_maturity,
-            "maturity_status": maturity_status,
-            "penalty_streak": penalty_days,
-            "compliant_streak": compliant_days,
-            "blockchain_txes": blockchain_txes,
-            "missing_days": missing_days,
-            "audit_rows": audit_rows,
-            "total_missing": len(missing_days),
-            "total_penalty": sum(1 for l in logs if l.verdict == "PENALTY"),
-            "total_compliant": sum(1 for l in logs if l.verdict == "COMPLIANT"),
-        })
-
-    redis_client.setex(cache_key, DIGEST_TTL, json.dumps(result, default=str))
-    return result
-
-
-@router.get("/unread/count")
-def get_unread_count(db: Session = Depends(get_db)):
-    """Count of unread critical alerts — drives the bell badge."""
-    cache_key = "alerts:unread:count"
-    cached = redis_client.get(cache_key)
-    if cached is not None:
-        return {"count": int(cached)}
-
-    count = (
-        db.query(Alert)
-        .filter(Alert.severity == "critical", Alert.status != "READ")
-        .count()
+    task = run_daily_audit.apply_async(
+        kwargs={"target_date": resolved_date, "bond_id": bond_id},
+        queue="audits",
     )
-    redis_client.setex(cache_key, 30, count)
-    return {"count": count}
+    return {
+        "message": "Audit task queued",
+        "task_id": task.id,
+        "target_date": resolved_date or str(date_type.today()),
+        "bond_id": bond_id or "all",
+        "forced": force,
+    }
 
 
-@router.patch("/{alert_id}/read")
-def mark_alert_read(alert_id: int, db: Session = Depends(get_db)):
-    from fastapi import HTTPException
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
-    if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found")
-    alert.status = "READ"
+@router.patch("/patch-tx")
+def patch_audit_tx(
+    bond_id: str,
+    date: str,
+    tx_hash: str,
+    gas_used: int = None,
+    block_number: int = None,
+    rate_before: float = None,
+    rate_after: float = None,
+    db: Session = Depends(get_db),
+):
+    log = (
+        db.query(AuditLog)
+        .filter(AuditLog.bond_id == bond_id, AuditLog.date == date)
+        .first()
+    )
+    if not log:
+        raise HTTPException(status_code=404, detail=f"No audit log for {bond_id} on {date}")
+
+    log.blockchain_tx_hash = tx_hash
+    if gas_used is not None:
+        log.gas_used = gas_used
+    if block_number is not None:
+        log.block_number = block_number
+    if rate_before is not None:
+        log.rate_before = rate_before
+    if rate_after is not None:
+        log.rate_after = rate_after
+
     db.commit()
-    redis_client.delete("alerts:unread:count")
-    return {"ok": True}
+
+    from redis_client import redis_client
+    ts_keys = redis_client.keys(f"bond:timeseries:{bond_id}:*")
+    keys_to_bust = [f"bond:detail:{bond_id}", "bonds:list", "dashboard:summary"] + list(ts_keys)
+    redis_client.delete(*keys_to_bust)
+
+    return {
+        "bond_id": bond_id,
+        "date": date,
+        "blockchain_tx_hash": log.blockchain_tx_hash,
+        "gas_used": log.gas_used,
+        "block_number": log.block_number,
+        "rate_before": float(log.rate_before) if log.rate_before else None,
+        "rate_after": float(log.rate_after) if log.rate_after else None,
+        "status": "patched",
+    }
+
+@router.post("/catchup")
+def trigger_manual_catchup(force: bool = False):
+    try:
+        from tasks.catchup import catchup_missed_audits
+        from config import settings as _settings
+        effective_force = force or _settings.DEBUG
+        summary = catchup_missed_audits(force=effective_force)
+        return {
+            "message": "Catchup complete",
+            "force_mode": effective_force,
+            "bonds_checked": summary["bonds_checked"],
+            "total_missed_days_queued": summary["total_missed_days"],
+            "queued": summary["queued"],
+            "skipped_too_old": summary["skipped_too_old"],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Catchup failed: {str(e)}")
+
+@router.post("/recompute-maturity")
+def recompute_maturity_stats(bond_id: str, db: Session = Depends(get_db)):
+    """Recompute final_avg_pr and total_penalty_days for a MATURED bond.
+    Use this after NASA lag catchup fills in missing audit records."""
+    from models import Bond, BondStatus
+    from tasks.maturity import recompute_matured_bond_stats
+
+    bond = db.query(Bond).filter(Bond.id == bond_id).first()
+    if not bond:
+        raise HTTPException(status_code=404, detail=f"Bond {bond_id} not found")
+    if bond.status != BondStatus.MATURED:
+        raise HTTPException(status_code=400, detail=f"Bond {bond_id} is not MATURED")
+
+    result = recompute_matured_bond_stats(db, bond)
+    db.commit()
+    return {"message": "Recomputed", "bond_id": bond_id, **result}

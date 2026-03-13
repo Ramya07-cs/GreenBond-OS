@@ -14,7 +14,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-#Sentry setup
+
+# ── Sentry setup ──────────────────────────────────────────────────────────────
 def _init_sentry():
     if not settings.SENTRY_DSN:
         logger.info("Sentry DSN not set — error monitoring disabled.")
@@ -46,7 +47,7 @@ def _init_sentry():
 _init_sentry()
 
 
-#Lifespan
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"{settings.APP_NAME} starting up...")
@@ -58,8 +59,12 @@ async def lifespan(app: FastAPI):
     # ── CATCHUP: fill in any audit gaps caused by downtime ──────────────────
     try:
         from tasks.catchup import catchup_missed_audits
-        logger.info("Running startup catchup check for missed audits...")
-        summary = catchup_missed_audits()
+        from config import settings as _settings
+        if _settings.DEBUG:
+            logger.info("Running startup catchup [DEBUG mode — NASA lag bypassed, all IGNORED days will be re-audited]...")
+        else:
+            logger.info("Running startup catchup check for missed audits...")
+        summary = catchup_missed_audits(force=_settings.DEBUG)
 
         if summary["total_missed_days"] > 0:
             logger.warning(
@@ -82,10 +87,13 @@ async def lifespan(app: FastAPI):
             f"Server will continue — trigger manual catchup via /audit/catchup if needed.",
             exc_info=True,
         )
+    # ────────────────────────────────────────────────────────────────────────
+
     yield
     logger.info(f"{settings.APP_NAME} shutting down.")
 
-#App
+
+# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
     description=(
@@ -114,6 +122,7 @@ app.include_router(alerts.router)
 app.include_router(production.router)
 app.include_router(blockchain.router)
 app.include_router(health.router)
+
 
 @app.get("/")
 def root():

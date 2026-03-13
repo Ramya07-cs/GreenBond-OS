@@ -52,7 +52,6 @@ def get_audit_logs(
         ],
     }
 
-
 @router.post("/run")
 def trigger_manual_audit(
     target_date: Optional[str] = None,
@@ -63,7 +62,7 @@ def trigger_manual_audit(
 ):
     from tasks.daily_audit import run_daily_audit
     from redis_client import redis_client
-
+  
     resolved_date = target_date or date
     if force and resolved_date and bond_id:
         deleted = (
@@ -101,7 +100,7 @@ def patch_audit_tx(
     rate_after: float = None,
     db: Session = Depends(get_db),
 ):
-    
+
     log = (
         db.query(AuditLog)
         .filter(AuditLog.bond_id == bond_id, AuditLog.date == date)
@@ -139,12 +138,15 @@ def patch_audit_tx(
     }
 
 @router.post("/catchup")
-def trigger_manual_catchup():
+def trigger_manual_catchup(force: bool = False):
     try:
         from tasks.catchup import catchup_missed_audits
-        summary = catchup_missed_audits()
+        from config import settings as _settings
+        effective_force = force or _settings.DEBUG
+        summary = catchup_missed_audits(force=effective_force)
         return {
             "message": "Catchup complete",
+            "force_mode": effective_force,
             "bonds_checked": summary["bonds_checked"],
             "total_missed_days_queued": summary["total_missed_days"],
             "queued": summary["queued"],

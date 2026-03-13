@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from database import SessionLocal
 from models import Bond, AuditLog, BondStatus
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +15,13 @@ logger = logging.getLogger(__name__)
 MAX_CATCHUP_DAYS = 30
 
 
-def catchup_missed_audits() -> dict:
+def catchup_missed_audits(force: bool = False) -> dict:
     # Late import to avoid circular import at module load time
     from tasks.daily_audit import run_daily_audit
+
+    # In DEBUG mode or when force=True, bypass NASA lag guard so all missed/IGNORED
+    # dates are re-queued immediately — useful for local testing on restart.
+    effective_force = force or settings.DEBUG
 
     db: Session = SessionLocal()
     summary = {
@@ -24,22 +29,23 @@ def catchup_missed_audits() -> dict:
         "total_missed_days": 0,
         "queued": [],
         "skipped_too_old": 0,
+        "force_mode": effective_force,
     }
 
     try:
         # Only process bonds that are currently being monitored
         active_bonds = (
             db.query(Bond)
-            .filter(Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY]))
+            .filter(Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY, BondStatus.MATURED]))
             .all()
         )
 
         if not active_bonds:
-            logger.info("[Catchup] No active bonds found. Nothing to do.")
+            logger.info("[Catchup] No active/matured bonds found. Nothing to do.")
             return summary
 
         logger.info(
-            f"[Catchup] Checking {len(active_bonds)} active bond(s) for missed audits..."
+            f"[Catchup] Checking {len(active_bonds)} bond(s) for missed audits..."
         )
 
         yesterday = date.today() - timedelta(days=1)
@@ -47,15 +53,22 @@ def catchup_missed_audits() -> dict:
 
         for bond in active_bonds:
             summary["bonds_checked"] += 1
-            # Never audit before the bond was registered — use registration
-            # date as the hard floor, regardless of MAX_CATCHUP_DAYS
+            # Never audit before the bond was registered
             bond_start = bond.created_at.date() if bond.created_at else date.today()
-            # Bond registered today — nothing to catch up, Beat will run tonight
             if bond_start >= date.today():
                 logger.info(f"[Catchup] {bond.id}: registered today, skipping catchup.")
                 continue
             effective_cutoff = max(cutoff, bond_start)
-            missed_dates = _find_missed_dates(db, bond.id, yesterday, effective_cutoff)
+
+            # For matured bonds: cap audit range at maturity_date, not yesterday.
+            # This ensures NASA lag days before maturity still get retried.
+            if bond.status == BondStatus.MATURED and bond.maturity_date:
+                audit_up_to = min(yesterday, bond.maturity_date)
+                logger.info(f"[Catchup] {bond.id}: MATURED — auditing up to maturity date {audit_up_to}")
+            else:
+                audit_up_to = yesterday
+
+            missed_dates = _find_missed_dates(db, bond.id, audit_up_to, effective_cutoff, force=effective_force)
 
             if not missed_dates:
                 logger.info(f"[Catchup] {bond.id}: up to date ✓")
@@ -79,12 +92,34 @@ def catchup_missed_audits() -> dict:
                 f"{missed_dates[0]} → {missed_dates[-1]}. Queuing..."
             )
 
+            # Queue one Celery task per missed date, in strict chronological order.
+            # Stagger by 30s per date so streak reads from DB are always sequential —
+            # each task sees the completed streak from the previous date before running.
             queued_dates = []
             for i, missed_date in enumerate(missed_dates):
+                # In force mode: delete existing IGNORED/PENDING rows so the audit
+                # runs fresh and recalculates streaks correctly from scratch.
+                if effective_force:
+                    deleted = (
+                        db.query(AuditLog)
+                        .filter(
+                            AuditLog.bond_id == bond.id,
+                            AuditLog.date == missed_date,
+                            AuditLog.verdict.in_(["IGNORED", "PENDING"]),
+                        )
+                        .delete()
+                    )
+                    if deleted:
+                        logger.info(
+                            f"[Catchup] Force mode: cleared {deleted} IGNORED/PENDING "
+                            f"record(s) for {bond.id} on {missed_date}"
+                        )
+                db.commit()
+
                 run_daily_audit.apply_async(
-                    kwargs={"target_date": str(missed_date)},
+                    kwargs={"target_date": str(missed_date), "bond_id": bond.id},
                     queue="audits",
-                    countdown=i * 10,  # stagger: 0s, 10s, 20s, etc.
+                    countdown=i * 30,  # stagger: 0s, 30s, 60s, etc.
                 )
                 queued_dates.append(str(missed_date))
                 summary["total_missed_days"] += 1
@@ -115,7 +150,7 @@ from tasks.celery_app import celery_app  # noqa: E402 — import after function 
 @celery_app.task(name="tasks.catchup.retry_ignored_audits")
 def retry_ignored_audits():
     logger.info("[Catchup] Scheduled retry-ignored-audits task started.")
-    summary = catchup_missed_audits()
+    summary = catchup_missed_audits(force=settings.DEBUG)
     logger.info(
         f"[Catchup] Scheduled retry complete — "
         f"{summary['total_missed_days']} day(s) queued across "
@@ -129,6 +164,7 @@ def _find_missed_dates(
     bond_id: str,
     up_to: date,
     cutoff: date,
+    force: bool = False,
 ) -> list[date]:
 
     # Find the last audited date for this bond (any verdict including IGNORED/PENDING)
@@ -155,8 +191,14 @@ def _find_missed_dates(
 
     # NASA POWER has a 5–6 day processing lag. Only retry IGNORED/PENDING audits
     # that are at least 7 days old — this guarantees NASA data should be available.
-    # Retrying fresher dates would just produce the same "data lag" skip again.
-    nasa_ready_cutoff = date.today() - timedelta(days=7)
+    # In force/debug mode: bypass this guard — retry ALL incomplete dates immediately.
+    nasa_ready_cutoff = cutoff if force else date.today() - timedelta(days=7)
+
+    if force:
+        logger.info(
+            f"[Catchup] {bond_id}: FORCE mode — NASA lag guard bypassed, "
+            f"all IGNORED/PENDING dates will be retried regardless of age."
+        )
 
     retriable_incomplete: set[date] = set(
         row[0]
@@ -173,37 +215,35 @@ def _find_missed_dates(
     if retriable_incomplete:
         logger.info(
             f"[Catchup] {bond_id}: {len(retriable_incomplete)} IGNORED/PENDING day(s) "
-            f"past NASA lag window — will retry: {sorted(retriable_incomplete)}"
+            f"to retry: {sorted(retriable_incomplete)}"
         )
 
-    # Dates with a COMPLIANT or PENALTY record are fully done — never re-queue
+    # Dates with a COMPLIANT/PENALTY/RECOVERY record are fully done — never re-queue
     completed_dates: set[date] = set(
         row[0]
         for row in db.query(AuditLog.date)
         .filter(
             AuditLog.bond_id == bond_id,
-            AuditLog.verdict.in_(["COMPLIANT", "PENALTY"]),
+            AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
             AuditLog.date >= max(start_from, cutoff),
             AuditLog.date <= up_to,
         )
         .all()
     )
 
-    # Dates with any audit record (including IGNORED/PENDING) that are still
-    # within the NASA lag window — too fresh to retry, leave them alone
-    fresh_incomplete: set[date] = set(
+    fresh_incomplete: set[date] = set() if force else set(
         row[0]
         for row in db.query(AuditLog.date)
         .filter(
             AuditLog.bond_id == bond_id,
             AuditLog.verdict.in_(["IGNORED", "PENDING"]),
-            AuditLog.date > nasa_ready_cutoff,  # fresher than 7 days = not ready
+            AuditLog.date > nasa_ready_cutoff,
             AuditLog.date <= up_to,
         )
         .all()
     )
 
-    scan_from = min(max(cutoff, start_from), max(cutoff, nasa_ready_cutoff))
+    scan_from = max(cutoff, start_from)
 
     missed = []
     current = scan_from

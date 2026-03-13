@@ -40,7 +40,7 @@ def run_daily_audit(self, target_date: str = None, bond_id: str = None):
 
     try:
         query = db.query(Bond).filter(
-            Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY])
+            Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY, BondStatus.MATURED])
         )
         if bond_id:
             query = query.filter(Bond.id == bond_id)
@@ -48,7 +48,7 @@ def run_daily_audit(self, target_date: str = None, bond_id: str = None):
 
         if bond_id and not active_bonds:
             raise ValueError(
-                f"Bond '{bond_id}' not found or not in ACTIVE/PENALTY status"
+                f"Bond '{bond_id}' not found or not in ACTIVE/PENALTY/MATURED status"
             )
 
         logger.info(f"Processing {len(active_bonds)} active bonds")
@@ -231,16 +231,54 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
 
     # ── Step 5: Evaluate penalty/recovery ────────────────────────────────────
     consecutive_penalty, consecutive_compliant = audit_service.get_last_streaks(db, bond.id)
+
+    # For MATURED bonds: bond.current_rate was reset to base_rate at maturity.
+    # Use the rate from the last audit log instead so penalty engine sees the
+    # correct pre-maturity rate (e.g. 12.75% penalty rate, not 8.5% base).
+    if bond.status == BondStatus.MATURED:
+        last_log = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.bond_id == bond.id,
+                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
+            )
+            .order_by(AuditLog.date.desc())
+            .first()
+        )
+        effective_rate = float(last_log.rate_after or bond.base_rate) if last_log else float(bond.base_rate)
+        logger.info(
+            f"  {bond.id} MATURED — using effective rate {effective_rate}% "
+            f"from last audit log (bond.current_rate={bond.current_rate}% is post-maturity reset)"
+        )
+    else:
+        effective_rate = float(bond.current_rate)
+
     decision = penalty_engine.evaluate(
         pr_verdict=pr_result.verdict,
         consecutive_penalty=consecutive_penalty,
         consecutive_compliant=consecutive_compliant,
-        current_rate=float(bond.current_rate),
+        current_rate=effective_rate,
         base_rate=float(bond.base_rate),
     )
     logger.info(f"  Decision: {decision.verdict} | Rate change: {decision.rate_changed}")
 
     # ── Step 6: Write to blockchain (if rate changed) ─────────────────────────
+    # For MATURED bonds audited via NASA lag catchup:
+    # - audit_date < maturity_date → legitimate historical event, allow rate change + TX
+    # - audit_date >= maturity_date → post-maturity, skip rate change + TX
+    if bond.status == BondStatus.MATURED and decision.rate_changed:
+        if bond.maturity_date and audit_date < bond.maturity_date:
+            logger.info(
+                f"  {bond.id} is MATURED but audit_date {audit_date} is before "
+                f"maturity {bond.maturity_date} — allowing rate change + TX (NASA lag catchup)."
+            )
+        else:
+            logger.info(
+                f"  {bond.id} is MATURED and audit_date {audit_date} >= maturity — "
+                f"skipping rate change and blockchain TX."
+            )
+            decision.rate_changed = False
+
     tx_result = None
     if decision.rate_changed:
         tx_result = blockchain_service.write_rate_change(
@@ -260,11 +298,16 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
             logger.info(f"  TX: {tx_result['tx_hash']}")
 
         # Update bond rate in DB
-        new_status = (
-            BondStatus.PENALTY
-            if decision.trigger_type == "PENALTY_TRIGGER"
-            else BondStatus.ACTIVE
-        )
+        # For MATURED bonds: only update the rate for historical accuracy,
+        # never change the status back to ACTIVE/PENALTY.
+        if bond.status == BondStatus.MATURED:
+            new_status = BondStatus.MATURED
+        else:
+            new_status = (
+                BondStatus.PENALTY
+                if decision.trigger_type == "PENALTY_TRIGGER"
+                else BondStatus.ACTIVE
+            )
         audit_service.update_bond_rate(db, bond, decision.new_rate, new_status)
         results["rate_changes"].append({
             "bond_id": bond.id,
@@ -298,7 +341,15 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
         tx_result=tx_result,
     )
 
-    # ── Step 9: Invalidate Redis caches for this bond ─────────────────────────
+    # ── Step 9: Recompute matured bond stats (NASA lag catchup) ──────────────
+    # If this bond is MATURED, recompute final_avg_pr and total_penalty_days now
+    # that a previously-IGNORED day has been filled in.
+    if bond.status == BondStatus.MATURED:
+        from tasks.maturity import recompute_matured_bond_stats
+        recompute_matured_bond_stats(db, bond)
+        db.commit()
+
+    # ── Step 10: Invalidate Redis caches for this bond ────────────────────────
     # Inlined here to avoid circular import (bonds router imports celery tasks)
     keys_to_delete = [
         f"bond:detail:{bond.id}",

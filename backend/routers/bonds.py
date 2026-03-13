@@ -85,8 +85,8 @@ class BondOut(BaseModel):
     created_at: Optional[datetime] = None
     today_pr: Optional[float] = None
     today_pr_date: Optional[date] = None   # date of the latest real audit — lets frontend detect stale PR
-    consecutive_penalty: int = 0
-    consecutive_compliant: int = 0
+    consecutive_penalty: Optional[int] = 0
+    consecutive_compliant: Optional[int] = 0
     penalty_days_threshold: int = 3
     recovery_days_threshold: int = 5
     registered_on_chain: bool = False
@@ -114,7 +114,7 @@ def _enrich_bond(bond: Bond, db: Session) -> BondOut:
         db.query(AuditLog)
         .filter(
             AuditLog.bond_id == bond.id,
-            AuditLog.verdict.in_(["COMPLIANT", "PENALTY"]),
+            AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
             AuditLog.calculated_pr.isnot(None),
         )
         .order_by(AuditLog.date.desc())
@@ -123,8 +123,10 @@ def _enrich_bond(bond: Bond, db: Session) -> BondOut:
     out = BondOut.model_validate(bond)
     out.today_pr = float(latest_real_log.calculated_pr) if latest_real_log else None
     out.today_pr_date = latest_real_log.date if latest_real_log else None
-    out.consecutive_penalty = latest_log.consecutive_penalty if latest_log else 0
-    out.consecutive_compliant = latest_log.consecutive_compliant if latest_log else 0
+    # Always read streaks from the last COMPLIANT/PENALTY/RECOVERY log — never from IGNORED rows
+    # (IGNORED rows may have stale/raced streak values from concurrent catchup tasks)
+    out.consecutive_penalty = int(latest_real_log.consecutive_penalty or 0) if latest_real_log else 0
+    out.consecutive_compliant = int(latest_real_log.consecutive_compliant or 0) if latest_real_log else 0
     out.penalty_days_threshold = settings.CONSECUTIVE_PENALTY_DAYS
     out.recovery_days_threshold = settings.CONSECUTIVE_RECOVERY_DAYS
     return out
@@ -309,7 +311,9 @@ def get_timeseries(
         }
         for log in logs
     ]
-    
+    # Build interest_series from audited logs only, carrying the last known rate
+    # forward correctly. Never use bond.current_rate as a fallback — that would
+    # smear today's penalty rate onto all future/pending dates.
     _last_rate = float(bond.base_rate)
     _interest_points = {}
     for log in sorted(logs, key=lambda l: l.date):
