@@ -7,7 +7,14 @@ from tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+
 def retry_failed_blockchain_txs() -> dict:
+    """
+    Finds all audit records with a completed verdict (PENALTY/COMPLIANT/RECOVERY)
+    and a rate change but no blockchain TX hash — and retries them.
+    Runs automatically at 07:00 IST daily via Celery Beat.
+    Also callable manually via POST /api/blockchain/retry-pending.
+    """
     db = SessionLocal()
     retried = []
     failed = []
@@ -20,6 +27,7 @@ def retry_failed_blockchain_txs() -> dict:
                 AuditLog.blockchain_tx_hash.is_(None),
                 AuditLog.rate_before.isnot(None),
                 AuditLog.rate_after.isnot(None),
+                AuditLog.rate_before != AuditLog.rate_after,  # only actual rate changes
             )
             .order_by(AuditLog.date.asc())
             .limit(50)

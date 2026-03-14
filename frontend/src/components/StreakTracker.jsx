@@ -42,7 +42,7 @@ export default function StreakTracker({ bond }) {
             {isP
               ? compliantDays > 0
                 ? `Rate hiked · recovering ${compliantDays}/${recoveryTarget} days`
-                : `Rate hiked · ${recoveryTarget - penaltyDays > 0 ? recoveryTarget - penaltyDays + " more days until hike" : "awaiting recovery"}`
+                : `Rate hiked · needs ${recoveryTarget} compliant days to recover`
               : penaltyDays > 0
                 ? `${penaltyDays}/${effectiveStreakTarget} penalty days`
                 : `${compliantDays} day${compliantDays !== 1 ? "s" : ""} above threshold`}
