@@ -1,228 +1,146 @@
 import logging
-from datetime import date
-from typing import Optional
+from datetime import date, datetime, timezone
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import AuditLog, Alert, Bond
-from services.pr_engine import PRResult
-from services.penalty_engine import PenaltyDecision
+from database import SessionLocal
+from models import Bond, AuditLog, BondStatus
+from tasks.celery_app import celery_app
+from redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
 
-class AuditService:
+@celery_app.task(name="tasks.maturity.check_bond_maturity")
+def check_bond_maturity():
     """
-    Writes the results of each daily audit to PostgreSQL.
-    Creates audit_log and alert records with blockchain proof.
+    Detect and process bonds that have reached their maturity date.
+    Safe to run multiple times — idempotent (won't re-process MATURED bonds).
     """
+    today = date.today()
+    db: Session = SessionLocal()
+    summary = {"checked": 0, "matured": [], "errors": []}
 
-    def write_audit_log(
-        self,
-        db: Session,
-        bond_id: str,
-        audit_date: date,
-        pr_result: PRResult,
-        penalty_decision: PenaltyDecision,
-        tx_result: Optional[dict] = None,
-        auto_penalty_no_data: bool = False,
-    ) -> AuditLog:
-        """Persist a single day's audit record to the database."""
-
-        # Guard: if a completed record already exists for this bond+date, only
-        # skip if it already has a blockchain TX hash (fully anchored).
-        # If tx_hash is None, the prior blockchain write failed (e.g. out-of-gas)
-        # and we should update the record with the new TX result.
-        completed = (
-            db.query(AuditLog)
+    try:
+        # Find bonds whose maturity date has passed and are still active/penalty
+        due_bonds = (
+            db.query(Bond)
             .filter(
-                AuditLog.bond_id == bond_id,
-                AuditLog.date == audit_date,
-                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
+                Bond.maturity_date.isnot(None),
+                Bond.maturity_date <= today,
+                Bond.status.in_([BondStatus.ACTIVE, BondStatus.PENALTY]),
             )
-            .first()
-        )
-        if completed:
-            if completed.blockchain_tx_hash is not None:
-                logger.info(
-                    f"Skipping write for {bond_id} {audit_date} — "
-                    f"completed {completed.verdict} record with TX already exists."
-                )
-                return completed
-            else:
-                # Has verdict but no TX hash — update tx fields only if we now have a result
-                if tx_result:
-                    completed.blockchain_tx_hash = tx_result["tx_hash"]
-                    completed.block_number = tx_result.get("block_number")
-                    completed.gas_used = tx_result.get("gas_used")
-                    db.flush()
-                    logger.info(
-                        f"Updated tx_hash for {bond_id} {audit_date}: {tx_result['tx_hash']}"
-                    )
-                else:
-                    logger.info(
-                        f"Completed record for {bond_id} {audit_date} still has no TX — "
-                        f"blockchain write unavailable again."
-                    )
-                return completed
-
-        existing_all = (
-            db.query(AuditLog)
-            .filter(
-                AuditLog.bond_id == bond_id,
-                AuditLog.date == audit_date,
-            )
-            .order_by(AuditLog.id.asc())
             .all()
         )
 
-        if existing_all:
-            # Keep the oldest record, delete all duplicates
-            log = existing_all[0]
-            for duplicate in existing_all[1:]:
-                logger.warning(
-                    f"Deleting duplicate audit record id={duplicate.id} "
-                    f"for {bond_id} {audit_date} (verdict={duplicate.verdict})"
-                )
-                db.delete(duplicate)
-            db.flush()
-            logger.info(
-                f"Updating existing audit for {bond_id} {audit_date} "
-                f"(was {log.verdict}) → {penalty_decision.verdict}"
-            )
-        else:
-            log = AuditLog(bond_id=bond_id, date=audit_date)
-            db.add(log)
+        if not due_bonds:
+            logger.info("[Maturity] No bonds due for maturity today.")
+            return summary
 
-        log.nasa_ghi = pr_result.nasa_ghi if pr_result.nasa_ghi else None
-        log.actual_kwh = None if auto_penalty_no_data else (pr_result.actual_kwh if pr_result.actual_kwh else None)
-        log.expected_kwh = pr_result.expected_kwh
-        # For auto-penalty (deadline exceeded, no data): store NULL PR so the
-        # dashboard shows the last real PR instead of a misleading 0%.
-        log.calculated_pr = None if auto_penalty_no_data else (pr_result.pr if pr_result.verdict != "IGNORED" else None)
-        log.threshold = 0.75
-        log.verdict = penalty_decision.verdict
-        # For IGNORED days, store NULL so streak display is never misleading.
-        # Streaks are always read from the last COMPLIANT/PENALTY/RECOVERY record.
-        if penalty_decision.verdict == "IGNORED":
-            log.consecutive_penalty = None
-            log.consecutive_compliant = None
-        else:
-            log.consecutive_penalty = penalty_decision.consecutive_penalty
-            log.consecutive_compliant = penalty_decision.consecutive_compliant
-        log.rate_before = penalty_decision.previous_rate
-        log.rate_after = penalty_decision.new_rate
-        log.blockchain_tx_hash = tx_result["tx_hash"] if tx_result else None
-        log.block_number = tx_result["block_number"] if tx_result else None
-        log.gas_used = tx_result["gas_used"] if tx_result else None
+        logger.info(f"[Maturity] {len(due_bonds)} bond(s) reached maturity today.")
 
-        db.flush()  # Get the ID without committing
+        for bond in due_bonds:
+            summary["checked"] += 1
+            try:
+                _process_matured_bond(db, bond)
+                summary["matured"].append(bond.id)
+            except Exception as e:
+                logger.error(f"[Maturity] Error processing {bond.id}: {e}", exc_info=True)
+                summary["errors"].append({"bond_id": bond.id, "error": str(e)})
 
-        logger.info(
-            f"Audit logged: {bond_id} {audit_date} "
-            f"PR={pr_result.pr} [{penalty_decision.verdict}]"
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[Maturity] Fatal error: {e}", exc_info=True)
+    finally:
+        db.close()
+
+    return summary
+
+
+def recompute_matured_bond_stats(db: Session, bond: Bond):
+    """Recompute final_avg_pr and total_penalty_days for an already-MATURED bond.
+    Called after NASA lag catchup fills in previously IGNORED audit records."""
+    logger.info(f"[Maturity] Recomputing stats for already-matured bond {bond.id}")
+
+    stats = (
+        db.query(func.avg(AuditLog.calculated_pr).label("avg_pr"))
+        .filter(AuditLog.bond_id == bond.id, AuditLog.calculated_pr.isnot(None))
+        .first()
+    )
+    final_avg_pr = round(float(stats.avg_pr), 4) if stats and stats.avg_pr else None
+    total_penalty_days = (
+        db.query(func.count(AuditLog.id))
+        .filter(AuditLog.bond_id == bond.id, AuditLog.verdict == "PENALTY")
+        .scalar() or 0
+    )
+
+    bond.final_avg_pr = final_avg_pr
+    bond.total_penalty_days = total_penalty_days
+    db.flush()
+
+    redis_client.delete(
+        f"bond:detail:v2:{bond.id}", "bonds:list:v2", "dashboard:summary"
+    )
+    logger.info(
+        f"[Maturity] {bond.id} recomputed — "
+        f"avg PR: {final_avg_pr}, penalty days: {total_penalty_days}"
+    )
+    return {"final_avg_pr": final_avg_pr, "total_penalty_days": total_penalty_days}
+
+
+def _process_matured_bond(db: Session, bond: Bond):
+    """Process a single bond reaching maturity."""
+    logger.info(f"[Maturity] Processing {bond.id} ({bond.name})")
+
+    # ── 1. Calculate final performance stats from audit history ───────────────
+    stats = (
+        db.query(
+            func.avg(AuditLog.calculated_pr).label("avg_pr"),
+            func.count(
+                AuditLog.id
+            ).filter(AuditLog.verdict == "PENALTY").label("penalty_days"),
         )
-        return log
-
-    def write_alert(
-        self,
-        db: Session,
-        bond_id: str,
-        alert_type: str,
-        message: str,
-        severity: str,
-        status: str,
-        tx_hash: Optional[str] = None,
-        gas_used: Optional[int] = None,
-        block_number: Optional[int] = None,
-        recipient: Optional[str] = None,
-    ) -> Alert:
-        """Persist an alert record to the database."""
-
-        alert = Alert(
-            bond_id=bond_id,
-            type=alert_type,
-            message=message,
-            severity=severity,
-            status=status,
-            tx_hash=tx_hash,
-            gas_used=gas_used,
-            block_number=block_number,
-            recipient=recipient,
+        .filter(
+            AuditLog.bond_id == bond.id,
+            AuditLog.calculated_pr.isnot(None),
         )
-        db.add(alert)
-        db.flush()
-        return alert
+        .first()
+    )
 
-    def update_bond_rate(
-        self,
-        db: Session,
-        bond: Bond,
-        new_rate: float,
-        new_status: str,
-    ) -> Bond:
-        """Update the bond's current rate and status in the database."""
-        bond.current_rate = new_rate
-        bond.status = new_status
-        db.flush()
-        logger.info(f"Bond {bond.id} rate updated to {new_rate}% [{new_status}]")
-        return bond
+    final_avg_pr = round(float(stats.avg_pr), 4) if stats and stats.avg_pr else None
 
-    def get_last_streaks(self, db: Session, bond_id: str) -> tuple[int, int]:
-        last = (
-            db.query(AuditLog)
-            .filter(
-                AuditLog.bond_id == bond_id,
-                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
-            )
-            .order_by(AuditLog.date.desc())
-            .first()
-        )
-        if last:
-            return last.consecutive_penalty or 0, last.consecutive_compliant or 0
-        return 0, 0
+    # Count lifetime penalty days (separate query for clarity)
+    total_penalty_days = (
+        db.query(func.count(AuditLog.id))
+        .filter(AuditLog.bond_id == bond.id, AuditLog.verdict == "PENALTY")
+        .scalar()
+        or 0
+    )
 
+    logger.info(
+        f"[Maturity] {bond.id} final stats — "
+        f"avg PR: {final_avg_pr}, penalty days: {total_penalty_days}"
+    )
 
-    def write_audit_log_pending(
-        self,
-        db: Session,
-        bond_id: str,
-        audit_date: date,
-        actual_kwh: float,
-    ) -> AuditLog:
-        # Never overwrite a completed record
-        completed = (
-            db.query(AuditLog)
-            .filter(
-                AuditLog.bond_id == bond_id,
-                AuditLog.date == audit_date,
-                AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
-            )
-            .first()
-        )
-        if completed:
-            return completed
+    # ── 2. Update bond in DB ───────────────────────────────────────────────────
+    bond.status = BondStatus.MATURED
+    bond.matured_at = datetime.now(timezone.utc)
+    bond.final_avg_pr = final_avg_pr
+    bond.total_penalty_days = total_penalty_days
+    bond.current_rate = bond.base_rate      # Reset to base at maturity
+    db.flush()
 
-        existing = (
-            db.query(AuditLog)
-            .filter(AuditLog.bond_id == bond_id, AuditLog.date == audit_date)
-            .first()
-        )
-        if existing:
-            # Already have a PENDING/IGNORED record — just refresh the kwh value
-            existing.actual_kwh = actual_kwh
-            existing.verdict = "PENDING"
-            db.flush()
-            logger.info(f"Updated existing audit to PENDING: {bond_id} {audit_date}")
-            return existing
+    # ── 3. Invalidate all caches for this bond ────────────────────────────────
+    cache_keys = [
+        f"bond:detail:{bond.id}",
+        f"bond:pr_today:{bond.id}",
+        "bonds:list",
+        "dashboard:summary",
+        "health:full_check",
+    ]
+    pattern_keys = redis_client.keys(f"bond:timeseries:{bond.id}:*")
+    cache_keys.extend(pattern_keys)
+    redis_client.delete(*cache_keys)
 
-        log = AuditLog(
-            bond_id=bond_id,
-            date=audit_date,
-            actual_kwh=actual_kwh,
-            verdict="PENDING",
-        )
-        db.add(log)
-        db.flush()
-        logger.info(f"Audit logged as PENDING: {bond_id} {audit_date} (awaiting NASA GHI)")
-        return log
-
-audit_service = AuditService()
+    logger.info(f"[Maturity] {bond.id} successfully marked MATURED.")
