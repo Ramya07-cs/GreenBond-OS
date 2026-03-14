@@ -4,6 +4,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Bond, AuditLog, BondStatus
+from services.audit import audit_service
 from tasks.celery_app import celery_app
 from redis_client import redis_client
 
@@ -80,7 +81,7 @@ def recompute_matured_bond_stats(db: Session, bond: Bond):
     db.flush()
 
     redis_client.delete(
-        f"bond:detail:v2:{bond.id}", "bonds:list:v2", "dashboard:summary"
+        f"bond:detail:{bond.id}", "bonds:list", "dashboard:summary"
     )
     logger.info(
         f"[Maturity] {bond.id} recomputed — "
@@ -131,7 +132,21 @@ def _process_matured_bond(db: Session, bond: Bond):
     bond.current_rate = bond.base_rate      # Reset to base at maturity
     db.flush()
 
-    # ── 3. Invalidate all caches for this bond ────────────────────────────────
+    # ── 3. Log alert record ───────────────────────────────────────────────────
+    audit_service.write_alert(
+        db=db,
+        bond_id=bond.id,
+        alert_type="SYSTEM",
+        message=(
+            f"Bond {bond.id} ({bond.name}) matured on {bond.maturity_date}. "
+            f"Final avg PR: {final_avg_pr}. Total penalty days: {total_penalty_days}. "
+            f"Status set to MATURED."
+        ),
+        severity="info",
+        status="LOGGED",
+    )
+
+    # ── 5. Invalidate all caches for this bond ────────────────────────────────
     cache_keys = [
         f"bond:detail:{bond.id}",
         f"bond:pr_today:{bond.id}",

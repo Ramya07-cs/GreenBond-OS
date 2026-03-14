@@ -1,6 +1,5 @@
 import logging
 from datetime import date
-from celery import shared_task
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from database import SessionLocal
@@ -224,6 +223,17 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict,
             "consecutive_missing": consecutive_missing,
         })
 
+
+        # Log the missing data alert in DB
+        audit_service.write_alert(
+            db=db,
+            bond_id=bond.id,
+            alert_type="SYSTEM",
+            message=f"Missing production data for {bond.id} on {audit_date}. Day will be IGNORED.",
+            severity="warning",
+            status="LOGGED",
+        )
+
     # ── Step 4: Calculate PR ──────────────────────────────────────────────────
     pr_result = pr_engine.calculate(actual_kwh, nasa_ghi, float(bond.capacity_kw))
     logger.info(f"  PR: {pr_result.pr} [{pr_result.verdict}]")
@@ -316,7 +326,21 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict,
             "tx_hash": tx_result["tx_hash"] if tx_result else None,
         })
 
-    # ── Step 7: Write audit log to DB ─────────────────────────────────────────
+    # ── Step 7: Write alert record (if rate changed) ─────────────────────────
+    if decision.rate_changed:
+        audit_service.write_alert(
+            db=db,
+            bond_id=bond.id,
+            alert_type="BLOCKCHAIN",
+            message=decision.message,
+            severity="critical" if decision.trigger_type == "PENALTY_TRIGGER" else "success",
+            status="CONFIRMED" if tx_result else "FAILED",
+            tx_hash=tx_result["tx_hash"] if tx_result else None,
+            gas_used=tx_result["gas_used"] if tx_result else None,
+            block_number=tx_result["block_number"] if tx_result else None,
+        )
+
+    # ── Step 8: Write audit log to DB ─────────────────────────────────────────
     audit_service.write_audit_log(
         db=db,
         bond_id=bond.id,
@@ -327,7 +351,7 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict,
         auto_penalty_no_data=auto_penalty_no_data,
     )
 
-    # ── Step 8: Recompute matured bond stats (NASA lag catchup) ──────────────
+    # ── Step 9: Recompute matured bond stats (NASA lag catchup) ──────────────
     # If this bond is MATURED, recompute final_avg_pr and total_penalty_days now
     # that a previously-IGNORED day has been filled in.
     if bond.status == BondStatus.MATURED:
@@ -335,7 +359,7 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict,
         recompute_matured_bond_stats(db, bond)
         db.commit()
 
-    # ── Step 9: Invalidate Redis caches for this bond ────────────────────────
+    # ── Step 10: Invalidate Redis caches for this bond ────────────────────────
     # Inlined here to avoid circular import (bonds router imports celery tasks)
     keys_to_delete = [
         f"bond:detail:{bond.id}",
@@ -349,6 +373,8 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict,
     if keys_to_delete:
         redis_client.delete(*keys_to_delete)
 
+    # Also clear alert caches since new alerts may have been written
+    redis_client.delete("alerts:unread:count", "alerts:summary")
     logger.info(f"  Cache invalidated for {bond.id}")
 
 
