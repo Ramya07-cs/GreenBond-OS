@@ -3,31 +3,36 @@ import axios from "axios";
 const api = axios.create({
   baseURL: "",
   timeout: 15000,
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",    // ← added
+  },
 });
 
 // Blockchain calls (register, retry) can take 60-120s to confirm on-chain
 const blockchainApi = axios.create({
   baseURL: "",
   timeout: 150000,
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",   
+  },
 });
 
 // ── Bonds ──────────────────────────────────────────────────────────────────
-export const fetchBonds = () => api.get("/api/bonds").then((r) => r.data);
+export const fetchBonds = () => api.get("/api/bonds/").then((r) => r.data);
 export const fetchBond = (id) => api.get(`/api/bonds/${id}`).then((r) => r.data);
 export const createBond = (data) => api.post("/api/bonds", data).then((r) => r.data);
 export const fetchTimeseries = (id, days = 60) =>
   api.get(`/api/bonds/${id}/timeseries`, { params: { days } }).then((r) => r.data);
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
-// Uses the dedicated cached summary endpoint instead of computing client-side.
 export const fetchDashboardSummary = () =>
   api.get("/api/bonds/dashboard/summary").then((r) => r.data);
 
 // ── Audit ──────────────────────────────────────────────────────────────────
 export const fetchAuditLogs = (params) =>
-  api.get("/api/audit", { params }).then((r) => r.data);
+  api.get("/api/audit/", { params }).then((r) => r.data);
 export const triggerAudit = (date) =>
   api.post("/api/audit/run", null, { params: { target_date: date } }).then((r) => r.data);
 export const triggerCatchup = () =>
@@ -75,6 +80,5 @@ export const fixBondRegistration = (bondId, txHash, blockNumber = null) => {
 
 // ── Health ─────────────────────────────────────────────────────────────────
 export const fetchSystemHealth = () =>
-  api.get("/api/health").then((r) => r.data);
-
+  api.get("/api/health/").then((r) => r.data);
 export default api;

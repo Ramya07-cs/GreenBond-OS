@@ -226,7 +226,8 @@ export default function App() {
     <>
       <style>{GLOBAL_CSS}</style>
       {splash && <SplashScreen onDone={() => setSplash(false)} />}
-      <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <div style={{ display: "flex", height: "100vh", overflow: "hidden",
+                    visibility: splash ? "hidden" : "visible" }}>
         <Sidebar view={view} onNav={handleNav} onBond={handleSelectBond} selectedBond={selectedBond} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <Topbar

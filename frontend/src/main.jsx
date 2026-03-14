@@ -6,7 +6,9 @@ import App from "./App.jsx";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,       // 30s before refetch
+      staleTime: 0,              // always refetch on mount
+      retry: 3,                  // retry failed requests 3 times
+      retryDelay: 1000,          // 1s between retries
       refetchOnWindowFocus: false,
     },
   },
