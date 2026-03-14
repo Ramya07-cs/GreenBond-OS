@@ -7,6 +7,8 @@ export default function GlassBox({ bond, auditLog }) {
   const expectedKWh = auditLog?.expected_kwh;
   const verdict = auditLog?.verdict;
   const auditDate = auditLog?.date;
+  const submittedLate = auditLog?.submitted_late;
+  const submittedOn = auditLog?.submitted_on;
 
   const hasRealAudit = auditLog && (verdict === "COMPLIANT" || verdict === "PENALTY" || verdict === "RECOVERY");
   const isIgnored = auditLog && verdict === "IGNORED";
@@ -141,6 +143,20 @@ export default function GlassBox({ bond, auditLog }) {
                 <div style={{ fontSize: 10, color: "var(--text3)", padding: "8px 10px", background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r2)" }}>
                   NASA data lag is normal — the satellite processes irradiance readings 5–6 days after the observation date.
                   No action is needed on your part.
+                </div>
+              </div>
+            )}
+
+            {hasRealAudit && submittedLate && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", background: "rgba(255,152,0,.07)", borderBottom: "1px solid rgba(255,152,0,.2)" }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", letterSpacing: ".07em", marginBottom: 2 }}>LATE SUBMISSION</div>
+                  <div style={{ fontSize: 10, color: "var(--text2)", lineHeight: 1.6 }}>
+                    Production data for this day was submitted late{submittedOn ? ` on ${submittedOn}` : ""}, after the 3-day grace period.
+                    The audit verdict is valid but this entry is flagged for transparency.
+                    Repeated late submissions may indicate data management issues.
+                  </div>
                 </div>
               </div>
             )}

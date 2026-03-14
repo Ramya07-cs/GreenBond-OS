@@ -57,25 +57,52 @@ function ManualPanel({ bonds }) {
 
   const selectedBond = bonds.find(b => b.id === form.bond_id);
   const minDate = selectedBond?.created_at ? selectedBond.created_at.split("T")[0] : undefined;
-  const maxDate = new Date().toISOString().split("T")[0];
+  const maxDate = selectedBond?.maturity_date
+    ? selectedBond.maturity_date
+    : new Date().toISOString().split("T")[0];
 
+  // Calendar month — default to maturity month for MATURED bonds, else current month
   const today = new Date();
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  const firstDow = (new Date(today.getFullYear(), today.getMonth(), 1).getDay() + 6) % 7;
+  const defaultCalMonth = selectedBond?.maturity_date
+    ? new Date(selectedBond.maturity_date + "T00:00:00")
+    : today;
+  const [calYear, setCalYear] = useState(defaultCalMonth.getFullYear());
+  const [calMonth, setCalMonth] = useState(defaultCalMonth.getMonth() + 1);
+
+  // Reset calendar month when bond changes
+  const handleBondChange = (bond_id) => {
+    const bond = bonds.find(b => b.id === bond_id);
+    const ref = bond?.maturity_date
+      ? new Date(bond.maturity_date + "T00:00:00")
+      : today;
+    setCalYear(ref.getFullYear());
+    setCalMonth(ref.getMonth() + 1);
+    setForm(f => ({ ...f, bond_id }));
+  };
+
+  const calDate = new Date(calYear, calMonth - 1, 1);
+  const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+  const firstDow = (new Date(calYear, calMonth - 1, 1).getDay() + 6) % 7;
+  const calMonthLabel = calDate.toLocaleDateString("en-IN", { month: "long", year: "numeric" }).toUpperCase();
+
+  const prevMonth = () => { if (calMonth === 1) { setCalMonth(12); setCalYear(y => y - 1); } else setCalMonth(m => m - 1); };
+  const nextMonth = () => { if (calMonth === 12) { setCalMonth(1); setCalYear(y => y + 1); } else setCalMonth(m => m + 1); };
+  const isCurrentOrPast = calYear < today.getFullYear() || (calYear === today.getFullYear() && calMonth <= today.getMonth() + 1);
 
   const { data: missingData } = useQuery({
-    queryKey: ["missing", form.bond_id, today.getFullYear(), today.getMonth() + 1],
-    queryFn: () => fetchMissingDays(form.bond_id, today.getFullYear(), today.getMonth() + 1),
+    queryKey: ["missing", form.bond_id, calYear, calMonth],
+    queryFn: () => fetchMissingDays(form.bond_id, calYear, calMonth),
     enabled: !!form.bond_id,
   });
 
   const missingSet = new Set((missingData?.missing_days || []).map(d => parseInt(d.split("-")[2])));
   const submittedSet = new Set((missingData?.submitted_dates || []).map(d => parseInt(d.split("-")[2])));
+  const autoPenaltySet = new Set((missingData?.auto_penalty_dates || []).map(d => parseInt(d.split("-")[2])));
   const auditedMap = missingData?.audited_dates || {};
   const selectedDateAudit = auditedMap[form.date];
   const bondCreatedDay = missingData?.bond_created
-    ? (new Date(missingData.bond_created).getMonth() === today.getMonth() &&
-       new Date(missingData.bond_created).getFullYear() === today.getFullYear())
+    ? (new Date(missingData.bond_created).getMonth() === calMonth - 1 &&
+       new Date(missingData.bond_created).getFullYear() === calYear)
       ? new Date(missingData.bond_created).getDate()
       : 0
     : null;
@@ -83,7 +110,11 @@ function ManualPanel({ bonds }) {
   const mutation = useMutation({
     mutationFn: submitManualEntry,
     onSuccess: (data) => setResult({ ok: true, message: "Entry Submitted!", detail: `Record ID: ${data.id ?? "—"} · PR will be calculated in the next audit run.` }),
-    onError: (err) => setResult({ ok: false, message: "Submission Failed", detail: err?.response?.data?.detail || "Check console for details." }),
+    onError: (err) => {
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === "object" ? detail?.message : detail;
+      setResult({ ok: false, message: "Submission Failed", detail: msg || "Check console for details." });
+    },
   });
 
   const handleSubmit = () => {
@@ -100,18 +131,22 @@ function ManualPanel({ bonds }) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <Field n={1} label="Select Bond">
-              <select value={form.bond_id} onChange={e => setForm(f => ({ ...f, bond_id: e.target.value }))} style={inputStyle}>
+              <select value={form.bond_id} onChange={e => handleBondChange(e.target.value)} style={inputStyle}>
                 <option value="">— Select bond —</option>
                 {bonds.map(b => <option key={b.id} value={b.id}>{b.id} — {b.name}</option>)}
               </select>
             </Field>
             <Field n={2} label="Reporting Date">
               <input type="date" value={form.date} min={minDate} max={maxDate} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inputStyle} />
+            {selectedBond?.status === "MATURED" && (
+              <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(84,110,122,.1)", border: "1px solid rgba(84,110,122,.3)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--slate)", lineHeight: 1.6 }}>
+                🏁 This bond matured on <strong>{selectedBond.maturity_date}</strong>. Data can only be submitted up to the maturity date.
+              </div>
+            )}
             {selectedDateAudit && (
               <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(255,170,0,.1)", border: "1px solid rgba(255,170,0,.35)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)", lineHeight: 1.6 }}>
                 ⚠ {form.date} is already audited (<strong>{selectedDateAudit}</strong>).
-                Updating production data will overwrite the submitted kWh but <strong>will not change the audit verdict</strong> — the {selectedDateAudit} result is locked by the idempotency guard.
-                To re-audit this date, use <strong>Blockchain Explorer → Trigger Audit</strong>.
+                Updating production data will overwrite the submitted kWh but <strong>will not change the audit verdict</strong> — the {selectedDateAudit} result is already locked on-chain.
               </div>
             )}
             </Field>
@@ -125,16 +160,41 @@ function ManualPanel({ bonds }) {
               style={{ padding: "10px 20px", borderRadius: "var(--r2)", background: "var(--green)", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)", opacity: (!form.bond_id || !form.kwh) ? .4 : 1, transition: "opacity .2s" }}>
               {mutation.isPending ? "⏳ Submitting..." : "⬆ Submit & Log"}
             </button>
+
+            {/* Submission deadline notice */}
+            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(84,110,122,.06)", border: "1px solid rgba(84,110,122,.2)", borderRadius: "var(--r2)" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 6 }}>📋 Submission Policy</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 10, color: "var(--text2)" }}>
+                  <span style={{ color: "var(--green)", fontWeight: 700, flexShrink: 0 }}>✓ Within 3 days</span>
+                  <span>Accepted normally, no flag</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 10, color: "var(--text2)" }}>
+                  <span style={{ color: "var(--amber)", fontWeight: 700, flexShrink: 0 }}>⚠ Days 4–7</span>
+                  <span>Accepted but flagged as <strong style={{ color: "var(--amber)" }}>Late Submission</strong> — visible in Glass Box audit trail</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 10, color: "var(--text2)" }}>
+                  <span style={{ color: "var(--red)", fontWeight: 700, flexShrink: 0 }}>✗ After 7 days</span>
+                  <span>Submission <strong style={{ color: "var(--red)" }}>permanently rejected</strong> — day is auto-recorded as PENALTY on-chain</span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
 
       <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>
-          📅 {today.toLocaleDateString("en-IN", { month: "long", year: "numeric" })} — Data Coverage
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)" }}>
+            📅 {calMonthLabel} — Data Coverage
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={prevMonth} style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--r2)", color: "var(--text2)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>‹</button>
+            <button onClick={nextMonth} disabled={calYear === today.getFullYear() && calMonth === today.getMonth() + 1} style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--r2)", color: "var(--text2)", cursor: "pointer", padding: "2px 8px", fontSize: 12, opacity: (calYear === today.getFullYear() && calMonth === today.getMonth() + 1) ? 0.4 : 1 }}>›</button>
+          </div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
-          {[["var(--green-dim)","rgba(0,230,118,.3)","var(--green)","Submitted"],["var(--red-dim)","rgba(255,61,61,.3)","var(--red)","Missing"],["rgba(255,255,255,.02)","var(--border)","var(--text3)","Future"],["rgba(255,255,255,.01)","rgba(255,255,255,.04)","var(--text3)","N/A"]].map(([bg, border, color, label]) => (
+          {[["var(--green-dim)","rgba(0,230,118,.3)","var(--green)","Submitted"],["var(--red-dim)","rgba(255,61,61,.3)","var(--red)","Missing"],["rgba(180,0,0,.15)","rgba(255,61,61,.5)","var(--red)","🔒 Auto-penalty"],["rgba(255,255,255,.02)","var(--border)","var(--text3)","Future"],["rgba(255,255,255,.01)","rgba(255,255,255,.04)","var(--text3)","N/A"]].map(([bg, border, color, label]) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "var(--text2)" }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: bg, border: `1px solid ${border}` }} />
               <span style={{ color }}>{label}</span>
@@ -148,20 +208,32 @@ function ManualPanel({ bonds }) {
           {Array.from({ length: firstDow }).map((_, i) => <div key={`e${i}`} />)}
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const day = i + 1;
-            const isToday = day === today.getDate();
-            const isFuture = day > today.getDate();
-            const isNA = !form.bond_id ? false : bondCreatedDay !== null && bondCreatedDay > 0 && day < bondCreatedDay;
-            const isSubmitted = !isNA && submittedSet.has(day);
-            const isMissing = !isNA && !isFuture && missingSet.has(day);
-            let bg = "var(--card2)", borderColor = "var(--border)", color = "var(--text2)", opacity = 1, dotColor = null;
+            const isCurrentMonth = calYear === today.getFullYear() && calMonth === today.getMonth() + 1;
+            const isToday = isCurrentMonth && day === today.getDate();
+            const isFuture = isCurrentMonth ? day > today.getDate() : calYear > today.getFullYear() || (calYear === today.getFullYear() && calMonth > today.getMonth() + 1);
+
+            // N/A: before bond creation OR after maturity date
+            const maturityDay = selectedBond?.maturity_date
+              ? (new Date(selectedBond.maturity_date + "T00:00:00").getMonth() === calMonth - 1 &&
+                 new Date(selectedBond.maturity_date + "T00:00:00").getFullYear() === calYear)
+                ? new Date(selectedBond.maturity_date + "T00:00:00").getDate()
+                : (new Date(selectedBond.maturity_date + "T00:00:00") < new Date(calYear, calMonth - 1, 1) ? 0 : 32)
+              : null;
+            const isPostMaturity = maturityDay !== null && day > maturityDay;
+            const isNA = !form.bond_id ? false : isPostMaturity || (bondCreatedDay !== null && bondCreatedDay > 0 && day < bondCreatedDay);
+            const isAutoPenalty = !isNA && autoPenaltySet.has(day);
+            const isSubmitted = !isNA && !isAutoPenalty && submittedSet.has(day);
+            const isMissing = !isNA && !isFuture && !isAutoPenalty && missingSet.has(day);
+            let bg = "var(--card2)", borderColor = "var(--border)", color = "var(--text2)", opacity = 1, dotColor = null, label = null;
             if (isNA) { bg = "rgba(255,255,255,.01)"; borderColor = "rgba(255,255,255,.04)"; color = "var(--text3)"; opacity = 0.35; }
             else if (isFuture) { bg = "rgba(255,255,255,.02)"; opacity = 0.25; color = "var(--text3)"; }
+            else if (isAutoPenalty) { bg = "rgba(180,0,0,.15)"; borderColor = "rgba(255,61,61,.5)"; color = "var(--red)"; dotColor = "var(--red)"; label = "🔒"; }
             else if (isSubmitted) { bg = "var(--green-dim)"; borderColor = "rgba(0,230,118,.35)"; color = "var(--green)"; dotColor = "var(--green)"; }
             else if (isMissing) { bg = "var(--red-dim)"; borderColor = "rgba(255,61,61,.35)"; color = "var(--red)"; dotColor = "var(--red)"; }
             if (isToday) borderColor = "var(--green)";
             return (
-              <div key={day} style={{ aspectRatio: 1, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, position: "relative", background: bg, border: `1px solid ${borderColor}`, color, fontWeight: isToday ? 700 : 400, opacity }}>
-                {day}
+              <div key={day} title={isAutoPenalty ? "Auto-penalised: submission deadline exceeded" : undefined} style={{ aspectRatio: 1, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, position: "relative", background: bg, border: `1px solid ${borderColor}`, color, fontWeight: isToday ? 700 : 400, opacity }}>
+                {label ? <span style={{ fontSize: 8 }}>{label}</span> : day}
                 {dotColor && <div style={{ position: "absolute", top: 2, right: 2, width: 4, height: 4, borderRadius: "50%", background: dotColor }} />}
               </div>
             );
@@ -169,7 +241,12 @@ function ManualPanel({ bonds }) {
         </div>
         {form.bond_id && missingData && (
           <div style={{ marginTop: 12 }}>
-            {missingData.missing_days.length > 0 ? (
+            {missingData.total_days === 0 ? (
+              <div style={{ padding: 10, background: "rgba(84,110,122,.06)", border: "1px solid rgba(84,110,122,.2)", borderRadius: "var(--r2)" }}>
+                <div style={{ fontSize: 10, color: "var(--text3)", fontWeight: 700 }}>— No applicable days this month</div>
+                <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>Bond was not active during this period.</div>
+              </div>
+            ) : missingData.missing_days.length > 0 ? (
               <div style={{ padding: 10, background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.2)", borderRadius: "var(--r2)" }}>
                 <div style={{ fontSize: 10, color: "var(--red)", fontWeight: 700, marginBottom: 3 }}>⚠ {missingData.missing_days.length} MISSING DAYS</div>
                 <div style={{ fontSize: 10, color: "var(--text2)" }}>{missingData.submitted_days} of {missingData.total_days} applicable days submitted.</div>
@@ -177,7 +254,7 @@ function ManualPanel({ bonds }) {
             ) : (
               <div style={{ padding: 10, background: "var(--green-dim)", border: "1px solid rgba(0,230,118,.2)", borderRadius: "var(--r2)" }}>
                 <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700 }}>✅ All days submitted</div>
-                <div style={{ fontSize: 10, color: "var(--text2)", marginTop: 2 }}>{missingData.submitted_days} of {missingData.total_days} days covered this month.</div>
+                <div style={{ fontSize: 10, color: "var(--text2)", marginTop: 2 }}>{missingData.submitted_days} of {missingData.total_days} applicable days covered.</div>
               </div>
             )}
           </div>
@@ -250,8 +327,7 @@ function IoTPanel({ bonds }) {
                 {iotSelectedDateAudit && (
                   <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(255,170,0,.1)", border: "1px solid rgba(255,170,0,.35)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)", lineHeight: 1.6 }}>
                     ⚠ {form.date} is already audited (<strong>{iotSelectedDateAudit}</strong>).
-                    Updating production data will overwrite the submitted kWh but <strong>will not change the audit verdict</strong> — the {iotSelectedDateAudit} result is locked by the idempotency guard.
-                    To re-audit this date, use <strong>Blockchain Explorer → Trigger Audit</strong>.
+                    Updating production data will overwrite the submitted kWh but <strong>will not change the audit verdict</strong> — the {iotSelectedDateAudit} result is already locked on-chain.
                   </div>
                 )}
               </Field>

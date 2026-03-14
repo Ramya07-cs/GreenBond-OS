@@ -157,16 +157,50 @@ export default function BondDetail({ bond: initialBond, onBack }) {
         ))}
       </div>
 
-      {/* ── MATURITY BANNER ── shown across all tabs when bond is matured ── */}
-      {isM && (
+      {/* ── MATURITY BANNER ── shown only on Overview tab ── */}
+      {isM && tab === "overview" && (
         <div style={{ marginBottom: 16, padding: "16px 20px", background: "rgba(84,110,122,.08)", border: "1px solid rgba(84,110,122,.3)", borderRadius: "var(--r)", display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--slate)" }}>
             🏁 BOND MATURED — {bond.maturity_date}
           </div>
+
+          {/* NASA lag notice */}
+          {bond.pending_nasa_days > 0 && (() => {
+            // NASA data arrives ~7 days after the latest pending date
+            const nasaReadyDate = bond.pending_nasa_max_date
+              ? new Date(new Date(bond.pending_nasa_max_date + "T00:00:00").getTime() + 7 * 86400000)
+              : new Date(new Date(bond.maturity_date + "T00:00:00").getTime() + 7 * 86400000);
+            const readyDateStr = nasaReadyDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+            return (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", background: "rgba(255,179,0,.07)", border: "1px solid rgba(255,179,0,.2)", borderRadius: "var(--r2)" }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>🛰</span>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", letterSpacing: ".07em", marginBottom: 4 }}>FINAL STATS PENDING — NASA DATA LAG</div>
+                  <div style={{ fontSize: 10, color: "var(--text2)", lineHeight: 1.8 }}>
+                    NASA POWER API has a <strong style={{ color: "var(--text)" }}>5–7 day processing lag</strong> — data will be published by <strong style={{ color: "var(--amber)" }}>{readyDateStr}</strong>.<br/>
+                    Final Avg PR and Total Penalty Days will update automatically once NASA data arrives.
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
             {[
-              { l: "Final Avg PR", v: bond.final_avg_pr ? `${(bond.final_avg_pr * 100).toFixed(1)}%` : "—", c: bond.final_avg_pr >= 0.75 && bond.final_avg_pr <= 1.0 ? "var(--green)" : "var(--red)" },
-              { l: "Total Penalty Days", v: bond.total_penalty_days ?? "—", c: bond.total_penalty_days > 0 ? "var(--red)" : "var(--green)" },
+              {
+                l: "Final Avg PR",
+                v: bond.pending_nasa_days > 0
+                  ? bond.final_avg_pr ? `~${(bond.final_avg_pr * 100).toFixed(1)}% (tentative)` : "Pending"
+                  : bond.final_avg_pr ? `${(bond.final_avg_pr * 100).toFixed(1)}%` : "—",
+                c: bond.pending_nasa_days > 0 ? "var(--amber)" : bond.final_avg_pr ? (bond.final_avg_pr >= 0.75 && bond.final_avg_pr <= 1.0 ? "var(--green)" : "var(--red)") : "var(--text3)"
+              },
+              {
+                l: "Total Penalty Days",
+                v: bond.pending_nasa_days > 0
+                  ? bond.total_penalty_days != null ? `≥${bond.total_penalty_days} (tentative)` : "Pending"
+                  : bond.total_penalty_days != null ? bond.total_penalty_days : "—",
+                c: bond.pending_nasa_days > 0 ? "var(--amber)" : bond.total_penalty_days > 0 ? "var(--red)" : "var(--green)"
+              },
               { l: "Base Rate", v: `${bond.base_rate}%`, c: "var(--text2)" },
               { l: "TVL", v: bond.tvl ? `₹${(bond.tvl / 1e7).toFixed(2)} Cr` : "—", c: "var(--cyan)" },
             ].map(f => (
@@ -192,10 +226,12 @@ export default function BondDetail({ bond: initialBond, onBack }) {
       {tab === "overview" && (
         <div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🔥 Streak Tracker</div>
-              <StreakTracker bond={bond} />
-            </div>
+            {!(isM && bond.final_avg_pr != null && bond.total_penalty_days != null && !bond.pending_nasa_days) && (
+              <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🔥 Streak Tracker</div>
+                <StreakTracker bond={bond} />
+              </div>
+            )}
             {isP && (
               <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>💸 Financial Impact</div>
@@ -452,14 +488,26 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                       <div style={{ paddingBottom: 18, flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                           <span style={{ fontSize: 11, color: "var(--text3)", fontFamily: "var(--mono)" }}>{log.date}</span>
-                          <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, letterSpacing: ".07em",
-                            background: isP ? "var(--red-dim)" : isC ? "var(--green-dim)" : "rgba(84,110,122,.1)",
-                            color: isP ? "var(--red)" : isC ? "var(--green)" : "var(--slate)",
-                            border: `1px solid ${isP ? "rgba(255,61,61,.25)" : isC ? "rgba(0,230,118,.25)" : "rgba(84,110,122,.2)"}`,
-                          }}>{log.verdict}</span>
+                          {!(log.verdict === "PENALTY" && log.calculated_pr == null && log.actual_kwh == null) && (
+                            <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, letterSpacing: ".07em",
+                              background: isP ? "var(--red-dim)" : isC ? "var(--green-dim)" : "rgba(84,110,122,.1)",
+                              color: isP ? "var(--red)" : isC ? "var(--green)" : "var(--slate)",
+                              border: `1px solid ${isP ? "rgba(255,61,61,.25)" : isC ? "rgba(0,230,118,.25)" : "rgba(84,110,122,.2)"}`,
+                            }}>{log.verdict}</span>
+                          )}
                           {rateChanged && (
                             <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, background: "rgba(33,150,243,.12)", color: "var(--blue)", border: "1px solid rgba(33,150,243,.25)" }}>
                               🔗 RATE CHANGE
+                            </span>
+                          )}
+                          {log.submitted_late && (
+                            <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, background: "rgba(255,152,0,.12)", color: "var(--amber)", border: "1px solid rgba(255,152,0,.25)" }} title={`Data submitted late${log.submitted_on ? ` on ${log.submitted_on}` : ""}`}>
+                              ⚠ LATE SUBMISSION
+                            </span>
+                          )}
+                          {log.verdict === "PENALTY" && log.calculated_pr == null && log.actual_kwh == null && (
+                            <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, background: "rgba(255,61,61,.12)", color: "var(--red)", border: "1px solid rgba(255,61,61,.25)" }}>
+                              🔒 AUTO-PENALTY
                             </span>
                           )}
                         </div>
