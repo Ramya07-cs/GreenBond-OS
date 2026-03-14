@@ -91,7 +91,7 @@ function RegisterPanel({ bonds }) {
         lineHeight: 1.8,
       }}>
         <div style={{ fontWeight: 700, color: "var(--amber)", marginBottom: 6, fontSize: 12 }}>
-          🔗 Why register bonds on-chain?
+          ◈ Why register bonds on-chain?
         </div>
         Bonds created before the blockchain integration was live are not yet known to the smart contract.
         Without registration, any penalty trigger will revert with{" "}
@@ -177,10 +177,10 @@ function RegisterPanel({ bonds }) {
                       }}
                     >
                       {isLoading
-                        ? "⏳ Registering..."
+                        ? "REGISTERING..."
                         : hasError
                         ? "↺ Retry"
-                        : "🔗 Register On-Chain"}
+                        : "REGISTER ON-CHAIN ↗"}
                     </button>
                   )}
                 </div>
@@ -241,7 +241,7 @@ function RegisterPanel({ bonds }) {
                         disabled={!bf.txInput?.trim() || bf.loading}
                         style={{ padding: "7px 14px", background: "var(--amber)", border: "none", color: "#000", fontWeight: 700, fontSize: 10, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)", opacity: !bf.txInput?.trim() ? 0.4 : 1, whiteSpace: "nowrap" }}
                       >
-                        {bf.loading ? "⏳ Saving..." : "💾 Save"}
+                        {bf.loading ? "SAVING..." : "SAVE ✓"}
                       </button>
                     </div>
                     {bf.error && <div style={{ fontSize: 9, color: "var(--red)", fontFamily: "var(--mono)" }}>{bf.error}</div>}
@@ -296,7 +296,7 @@ function RegisterPanel({ bonds }) {
               }) ? 0.4 : 1,
             }}
           >
-            🔗 Register All Unregistered Bonds
+            REGISTER ALL UNREGISTERED BONDS ↗
           </button>
         </div>
       )}
@@ -317,8 +317,8 @@ export default function BlockchainExplorer() {
   });
 
   const tabs = [
-    ["status",   "🔗 Network Status"],
-    ["register", "🔗 On-Chain Proof"],
+    ["status",   "◈ Network Status"],
+    ["register", "◈ On-Chain Proof"],
   ];
   const today = new Date().toISOString().split("T")[0];
 
@@ -341,10 +341,10 @@ export default function BlockchainExplorer() {
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)" }}>
-              🔗 Polygon Node Status
+              ◈ Polygon Node Status
             </div>
             <button onClick={() => refetchStatus()} style={{ padding: "6px 14px", background: "var(--card2)", border: "1px solid var(--border2)", color: "var(--text2)", fontSize: 10, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)" }}>
-              {statusLoading ? "⏳ Refreshing..." : "↺ Refresh"}
+              {statusLoading ? "REFRESHING..." : "↺ Refresh"}
             </button>
           </div>
 
@@ -363,7 +363,7 @@ export default function BlockchainExplorer() {
               {/* Low balance warning banner */}
               {status.balance_low && (
                 <div style={{ padding: "12px 16px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.3)", borderRadius: "var(--r2)", display: "flex", alignItems: "flex-start", gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>🚨</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--red)" }}>▲</span>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "var(--red)", marginBottom: 3 }}>
                       WALLET LOW — {status.wallet_balance_matic} MATIC remaining
@@ -391,7 +391,7 @@ export default function BlockchainExplorer() {
               </div>
 
               <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 10 }}>📋 Raw Response</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 10 }}>◈ Raw Response</div>
                 <JsonBlock data={status} />
               </div>
 
@@ -402,7 +402,7 @@ export default function BlockchainExplorer() {
             </>
           ) : (
             <div style={{ padding: 32, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>
-              {statusLoading ? "⏳ Connecting to Polygon node..." : "Unable to fetch status."}
+              {statusLoading ? "CONNECTING TO POLYGON NODE..." : "Unable to fetch status."}
             </div>
           )}
         </div>

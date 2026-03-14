@@ -70,7 +70,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
         >← BACK</button>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <StatusBadge status={bond.status} />
-          {isP && <button onClick={() => setTxModal(true)} style={{ padding: "5px 12px", borderRadius: "var(--r2)", background: "transparent", border: "1px solid rgba(33,150,243,.4)", color: "var(--blue)", fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: "var(--mono)" }}>🔗 VERIFY ON CHAIN</button>}
+          {isP && <button onClick={() => setTxModal(true)} style={{ padding: "5px 12px", borderRadius: "var(--r2)", background: "transparent", border: "1px solid rgba(33,150,243,.4)", color: "var(--blue)", fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: "var(--mono)" }}>↗ VERIFY ON CHAIN</button>}
         </div>
       </div>
 
@@ -109,7 +109,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
             </>
           ) : (
             <>
-              <div style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", fontWeight: 700, display: "inline-block", marginTop: 4 }}>⏳ PENDING</div>
+              <div style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: "rgba(84,110,122,.12)", border: "1px solid rgba(84,110,122,.25)", color: "var(--slate)", fontWeight: 700, display: "inline-block", marginTop: 4 }}>— PENDING</div>
               <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 3 }}>awaiting NASA data</div>
             </>
           )}
@@ -161,7 +161,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
       {isM && tab === "overview" && (
         <div style={{ marginBottom: 16, padding: "16px 20px", background: "rgba(84,110,122,.08)", border: "1px solid rgba(84,110,122,.3)", borderRadius: "var(--r)", display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--slate)" }}>
-            🏁 BOND MATURED — {bond.maturity_date}
+            ✦ BOND MATURED — {bond.maturity_date}
           </div>
 
           {/* NASA lag notice */}
@@ -173,7 +173,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
             const readyDateStr = nasaReadyDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
             return (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", background: "rgba(255,179,0,.07)", border: "1px solid rgba(255,179,0,.2)", borderRadius: "var(--r2)" }}>
-                <span style={{ fontSize: 14, flexShrink: 0 }}>🛰</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--cyan)", letterSpacing: ".05em" }}>SAT</span>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", letterSpacing: ".07em", marginBottom: 4 }}>FINAL STATS PENDING — NASA DATA LAG</div>
                   <div style={{ fontSize: 10, color: "var(--text2)", lineHeight: 1.8 }}>
@@ -212,7 +212,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
           </div>
           {bond.tvl && bond.total_penalty_days > 0 && (
             <div style={{ fontSize: 10, color: "var(--text3)", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-              💸 Estimated extra interest paid during penalty periods:&nbsp;
+              ◈ Estimated extra interest paid during penalty periods:&nbsp;
               <span style={{ color: "var(--red)", fontFamily: "var(--mono)", fontWeight: 700 }}>
                 ₹{((bond.tvl * (bond.base_rate * 0.5) / 100 / 365) * bond.total_penalty_days).toFixed(0)}
               </span>
@@ -228,13 +228,13 @@ export default function BondDetail({ bond: initialBond, onBack }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
             {!(isM && bond.final_avg_pr != null && bond.total_penalty_days != null && !bond.pending_nasa_days) && (
               <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🔥 Streak Tracker</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>◈ Streak Tracker</div>
                 <StreakTracker bond={bond} />
               </div>
             )}
             {isP && (
               <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>💸 Financial Impact</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>◈ Financial Impact</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {[
                     { l: "Rate Hike", v: `+${(bond.current_rate - bond.base_rate).toFixed(1)}%` },
@@ -254,7 +254,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
 
           {/* Interest Rate Timeline */}
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>📉 Interest Rate Timeline</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>▼ Interest Rate Timeline</div>
             <div style={{ height: 180 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={interestSeries}>
@@ -275,7 +275,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
       {tab === "analytics" && (
         <div>
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>📈 PR Over Time — Since {bondCreatedAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>↑ PR Over Time — Since {bondCreatedAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</div>
             <div style={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={perfSeries}>
@@ -290,11 +290,11 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-            <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 6 }}>🔴 Red dots = penalty events (PR below 75%)</div>
+            <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 6 }}>◈ Red dots = penalty events (PR below 75%)</div>
           </div>
 
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>⚡ Production vs. NASA Expected (kWh)</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 8 }}>◈ Production vs. NASA Expected (kWh)</div>
             <div style={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={energySeries}>
@@ -319,12 +319,12 @@ export default function BondDetail({ bond: initialBond, onBack }) {
       {tab === "glass" && (
         <div>
           <div style={{ padding: "10px 14px", background: "rgba(0,230,118,.04)", border: "1px solid rgba(0,230,118,.15)", borderRadius: "var(--r2)", marginBottom: 14, fontSize: 11, color: "var(--text2)", lineHeight: 1.7 }}>
-            🔬 <strong style={{ color: "var(--green)" }}>Glass Box:</strong> Every step of the PR calculation is shown below. Auditors can independently verify the raw data, formula, and final verdict.
+            ◈ <strong style={{ color: "var(--green)" }}>Glass Box:</strong> Every step of the PR calculation is shown below. Auditors can independently verify the raw data, formula, and final verdict.
           </div>
           <div style={{ marginBottom: 14 }}><GlassBox bond={bond} auditLog={latestCompletedAudit} /></div>
 
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>📋 Audit Trail + Blockchain Hashes</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>◈ Audit Trail + Blockchain Hashes</div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead><tr>{["Date","PR","NASA GHI","Verdict","TX Hash"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 12px", fontSize: 9, letterSpacing: ".15em", textTransform: "uppercase", color: "var(--text3)", borderBottom: "1px solid var(--border)", fontWeight: 600 }}>{h}</th>)}</tr></thead>
               <tbody>
@@ -355,7 +355,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
             {[
               { l: "Network",      v: chainStatus?.network?.replace("Polygon ","") || "Amoy Testnet", c: "var(--blue)" },
-              { l: "Connected",    v: chainStatus == null ? "..." : chainStatus.connected ? "✅ YES" : "⚠ NO", c: chainStatus?.connected ? "var(--green)" : "var(--red)" },
+              { l: "Connected",    v: chainStatus == null ? "..." : chainStatus.connected ? "ONLINE" : "⚠ NO", c: chainStatus?.connected ? "var(--green)" : "var(--red)" },
               { l: "Latest Block", v: chainStatus?.latest_block != null ? `#${chainStatus.latest_block.toLocaleString()}` : "—", c: "var(--cyan)" },
               { l: "Gas Price",    v: chainStatus?.gas_price_gwei != null ? `${chainStatus.gas_price_gwei} gwei` : "—", c: "var(--amber)" },
             ].map(t => (
@@ -368,18 +368,18 @@ export default function BondDetail({ bond: initialBond, onBack }) {
 
           {/* On-chain transactions for this bond */}
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>🔗 On-Chain Transactions</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>◈ On-Chain Transactions</div>
 
             {/* Registration TX */}
             {bond.registration_tx_hash && (
               <div style={{ marginBottom: 14, padding: "10px 12px", background: "rgba(0,188,212,.05)", border: "1px solid rgba(0,188,212,.15)", borderRadius: "var(--r2)" }}>
-                <div style={{ fontSize: 9, color: "var(--cyan)", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 6 }}>📋 Bond Registration</div>
+                <div style={{ fontSize: 9, color: "var(--cyan)", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 6 }}>◈ Bond Registration</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
                   {[
                     { l: "TX Hash",      v: bond.registration_tx_hash.slice(0, 20) + "…" },
                     { l: "Block",        v: bond.registration_block?.toLocaleString() || "—" },
                     { l: "Type",         v: "registerBond()" },
-                    { l: "Status",       v: "✅ CONFIRMED" },
+                    { l: "Status",       v: "CONFIRMED" },
                   ].map(t => (
                     <div key={t.l} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "7px 10px" }}>
                       <div style={{ fontSize: 9, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 2 }}>{t.l}</div>
@@ -402,14 +402,14 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                   <div style={{ color: "var(--text3)", fontSize: 11, lineHeight: 1.7 }}>
                     No blockchain transactions yet for this bond. A TX is written only when the interest rate changes (penalty trigger or recovery).
                     <br /><br />
-                    <span style={{ color: "var(--text2)" }}>Use the <strong style={{ color: "var(--blue)" }}>🔗 Blockchain</strong> page in the sidebar for full TX lookup and audit triggering.</span>
+                    <span style={{ color: "var(--text2)" }}>Use the <strong style={{ color: "var(--blue)" }}>Blockchain</strong> page in the sidebar for full TX lookup and audit triggering.</span>
                   </div>
                 ) : null;
               }
               return (
                 <div>
                   <div style={{ fontSize: 9, color: "var(--amber)", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 10 }}>
-                    ⚡ Rate Change TXes ({rateTxLogs.length})
+                    ◈ Rate Change TXes ({rateTxLogs.length})
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {rateTxLogs.map((log, i) => {
@@ -461,12 +461,12 @@ export default function BondDetail({ bond: initialBond, onBack }) {
         <div>
           <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              📋 Audit History — All Runs
+              ◈ Audit History — All Runs
               <span style={{ fontSize: 9, color: "var(--text3)" }}>{auditData?.logs?.filter(l => l.verdict !== "IGNORED").length || 0} RECORDS</span>
             </div>
             {(!auditData?.logs || auditData.logs.filter(l => l.verdict !== "IGNORED").length === 0) ? (
               <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text3)", fontSize: 12 }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
+                <div style={{ fontSize: 14, marginBottom: 8, color: "var(--text3)", letterSpacing: ".2em" }}>LOADING...</div>
                 No audit records yet. The first audit runs at 06:00 IST.<br />
                 <span style={{ fontSize: 10, color: "var(--text3)" }}>Use <strong style={{ color: "var(--blue)" }}>Blockchain → Trigger Audit</strong> to run one manually.</span>
               </div>
@@ -497,7 +497,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                           )}
                           {rateChanged && (
                             <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, background: "rgba(33,150,243,.12)", color: "var(--blue)", border: "1px solid rgba(33,150,243,.25)" }}>
-                              🔗 RATE CHANGE
+                              ↑ RATE CHANGE
                             </span>
                           )}
                           {log.submitted_late && (
@@ -507,7 +507,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                           )}
                           {log.verdict === "PENALTY" && log.calculated_pr == null && log.actual_kwh == null && (
                             <span style={{ fontSize: 9, padding: "1px 8px", borderRadius: 100, fontWeight: 700, background: "rgba(255,61,61,.12)", color: "var(--red)", border: "1px solid rgba(255,61,61,.25)" }}>
-                              🔒 AUTO-PENALTY
+                              ▲ AUTO-PENALTY
                             </span>
                           )}
                         </div>
@@ -527,7 +527,7 @@ export default function BondDetail({ bond: initialBond, onBack }) {
                         </div>
                         {log.blockchain_tx_hash && log.rate_after !== log.rate_before && (
                           <div style={{ marginTop: 5, fontSize: 10, color: "var(--blue)", fontFamily: "var(--mono)", cursor: "pointer" }} onClick={() => setTxModal(true)}>
-                            🔗 {log.blockchain_tx_hash.slice(0, 22)}... ↗
+                            {log.blockchain_tx_hash.slice(0, 22)}... ↗
                           </div>
                         )}
                       </div>

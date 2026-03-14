@@ -13,12 +13,12 @@ export default function SystemHealth() {
   const overall = health?.overall || "LOADING";
 
   const serviceList = [
-    { key: "postgresql", label: "PostgreSQL DB", icon: "🐘" },
-    { key: "redis", label: "Redis Cache", icon: "🗄️" },
-    { key: "celery_worker", label: "Celery Worker", icon: "⚙️" },
+    { key: "postgresql", label: "PostgreSQL DB", icon: "DB" },
+    { key: "redis", label: "Redis Cache", icon: "KV" },
+    { key: "celery_worker", label: "Celery Worker", icon: "WK" },
     { key: "celery_beat", label: "Beat Scheduler", icon: "⏰" },
-    { key: "blockchain", label: "Polygon Blockchain", icon: "🔗" },
-    { key: "nasa_api", label: "NASA POWER API", icon: "🛰️" },
+    { key: "blockchain", label: "Polygon Blockchain", icon: "◈" },
+    { key: "nasa_api", label: "NASA POWER API", icon: "SAT" },
   ];
 
   // Build a subtitle line for each service from the fields the backend actually returns
@@ -61,7 +61,7 @@ export default function SystemHealth() {
       {/* Low balance warning — only shown when balance is critically low */}
       {services.blockchain?.balance_low && (
         <div style={{ padding: "12px 16px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.3)", borderRadius: "var(--r2)", marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>🚨</span>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>▲</span>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--red)", marginBottom: 3 }}>
               WALLET LOW — {services.blockchain.wallet_balance_matic} MATIC remaining
@@ -93,7 +93,7 @@ export default function SystemHealth() {
 
       {/* Service List */}
       <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🖥️ Services</div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>◈ Services</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {serviceList.map(({ key, label, icon }) => {
             const svc = services[key] || {};
@@ -101,7 +101,10 @@ export default function SystemHealth() {
             return (
               <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)" }}>
                 <div>
-                  <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>{icon} {label}</div>
+                  <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: ".06em", color: "var(--text3)", fontFamily: "var(--mono)", background: "var(--border)", padding: "2px 5px", borderRadius: 3 }}>{icon}</span>
+                    {label}
+                  </div>
                   <div style={{ fontSize: 9, color: svc.balance_low ? "var(--red)" : "var(--text3)", marginTop: 2, fontFamily: "var(--mono)" }}>
                     {svcDetail(svc, key)}
                   </div>
@@ -119,7 +122,7 @@ export default function SystemHealth() {
       {/* NASA Ping Details */}
       {services.nasa_api?.ping_bond_id && (
         <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 10 }}>🛰️ NASA API Ping Details</div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 10 }}>◈ NASA API Ping Details</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
             {[
               { l: "Pinged Bond", v: services.nasa_api.ping_bond_id },
@@ -140,7 +143,7 @@ export default function SystemHealth() {
       {/* Cached indicator */}
       {health?.cached && (
         <div style={{ padding: "8px 14px", background: "var(--card2)", border: "1px solid var(--border)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--text3)", fontFamily: "var(--mono)" }}>
-          ⚡ Showing cached result — refreshes automatically every 60s on the server
+          ↺ Showing cached result — refreshes automatically every 60s on the server
         </div>
       )}
     </div>

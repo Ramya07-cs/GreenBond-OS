@@ -56,7 +56,7 @@ function Section({ title, count, accent, children, defaultOpen = false }) {
         )}
         <span style={{ fontSize: 10, color: "var(--text3)" }}>{open ? "▲" : "▼"}</span>
       </div>
-      {open && <div style={{ padding: "0 14px 12px" }}>{children}</div>}
+      {open && <div style={{ padding: "8px 14px 14px" }}>{children}</div>}
     </div>
   );
 }
@@ -106,8 +106,8 @@ function BondCard({ bond, daysLabel }) {
                 {bond.days_to_maturity != null && (
                   <span style={{ marginLeft: 6, fontSize: 9, color: isMaturityWarning ? "var(--amber)" : "var(--text3)" }}>
                     {bond.maturity_status === "MATURED" ? "✓ MATURED"
-                      : bond.maturity_status === "DUE" ? "⚠ DUE"
-                      : bond.maturity_status === "SOON" ? `⚠ ${bond.days_to_maturity}d left`
+                      : bond.maturity_status === "DUE" ? "▲ DUE"
+                      : bond.maturity_status === "SOON" ? `▲ ${bond.days_to_maturity}d left`
                       : `${bond.days_to_maturity}d`}
                   </span>
                 )}
@@ -123,7 +123,7 @@ function BondCard({ bond, daysLabel }) {
           { l: `Penalty Days (${daysLabel})`, v: bond.total_penalty, c: bond.total_penalty > 0 ? "var(--red)" : "var(--text2)" },
           { l: `Compliant Days (${daysLabel})`, v: bond.total_compliant, c: bond.total_compliant > 0 ? "var(--green)" : "var(--text2)" },
           { l: "Current Streak", v: (bond.penalty_streak ?? 0) > 0 ? `${bond.penalty_streak}d penalty` : `${bond.compliant_streak ?? 0}d compliant`, c: (bond.penalty_streak ?? 0) > 0 ? "var(--red)" : "var(--green)" },
-          { l: "Missing Days", v: bond.total_missing, c: bond.total_missing > 0 ? "var(--amber)" : "var(--text2)" },
+          { l: "Unsubmitted Days", v: bond.total_missing, c: bond.total_missing > 0 ? "var(--slate)" : "var(--text2)" },
         ].map((s, i) => (
           <div key={i} style={{ flex: 1, padding: "8px 14px", borderRight: i < 3 ? "1px solid var(--border)" : "none" }}>
             <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 3 }}>{s.l}</div>
@@ -132,52 +132,23 @@ function BondCard({ bond, daysLabel }) {
         ))}
       </div>
 
-      {/* Blockchain TXes */}
-      <Section title="Blockchain TXes" count={bond.blockchain_txes.length} accent="var(--cyan)" defaultOpen={bond.blockchain_txes.length > 0}>
-        {bond.blockchain_txes.length === 0 ? (
-          <div style={{ fontSize: 11, color: "var(--text3)", padding: "8px 0" }}>No on-chain TXes in this period.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {bond.blockchain_txes.map((tx, i) => (
-              <div key={i} style={{ background: "var(--card2)", border: "1px solid rgba(0,188,212,.2)", borderRadius: "var(--r2)", padding: "10px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <VerdictBadge v={tx.verdict} />
-                  <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "var(--text)" }}>{tx.date}</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-                  {[
-                    { l: "TX Hash", v: tx.tx_hash?.slice(0, 18) + "…", link: `https://amoy.polygonscan.com/tx/${tx.tx_hash}` },
-                    { l: "Block", v: tx.block_number?.toLocaleString() || "—" },
-                    { l: "Gas Used", v: tx.gas_used?.toLocaleString() || "—" },
-                    { l: "Rate", v: tx.rate_before != null ? `${tx.rate_before}% → ${tx.rate_after}%` : "—" },
-                  ].map(f => (
-                    <div key={f.l} style={{ background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "5px 8px" }}>
-                      <div style={{ fontSize: 8, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 2 }}>{f.l}</div>
-                      {f.link
-                        ? <a href={f.link} target="_blank" rel="noreferrer" style={{ fontSize: 9, color: "var(--blue)", fontFamily: "var(--mono)", textDecoration: "none" }}>{f.v} ↗</a>
-                        : <div style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--cyan)", fontWeight: 600 }}>{f.v}</div>
-                      }
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-
       {/* Missing Production */}
-      <Section title="Missing Production Days" count={bond.missing_days.length} accent="var(--amber)" defaultOpen={bond.missing_days.length > 0}>
+      <Section title="Unsubmitted Days (within 7d window)" count={bond.missing_days.length} accent={bond.missing_days.length > 0 ? "var(--slate)" : "var(--text3)"} defaultOpen={bond.missing_days.length > 0}>
         {bond.missing_days.length === 0 ? (
           <div style={{ fontSize: 11, color: "var(--green)", padding: "8px 0" }}>✓ No missing production data in this period.</div>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {bond.missing_days.map((d, i) => (
-              <span key={i} style={{ fontSize: 10, fontFamily: "var(--mono)", padding: "3px 9px", borderRadius: 100, background: "rgba(255,179,0,.1)", color: "var(--amber)", border: "1px solid rgba(255,179,0,.25)" }}>
-                {d.date}
-              </span>
-            ))}
-          </div>
+          <>
+            <div style={{ fontSize: 10, color: "var(--text3)", marginBottom: 8, lineHeight: 1.6 }}>
+              These days have no production data yet. Submit before the 7-day deadline or they will be auto-locked as penalty.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {bond.missing_days.map((d, i) => (
+                <span key={i} style={{ fontSize: 10, fontFamily: "var(--mono)", padding: "3px 9px", borderRadius: 3, background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(33,150,243,.25)", fontWeight: 600 }}>
+                  {d.date}
+                </span>
+              ))}
+            </div>
+          </>
         )}
       </Section>
 
@@ -203,47 +174,32 @@ function BondCard({ bond, daysLabel }) {
 }
 
 export default function Alerts() {
-  const [days, setDays] = useState(7);
-
   const { data: digest, isLoading } = useQuery({
-    queryKey: ["alert-digest", days],
-    queryFn: () => fetchDigest(days),
+    queryKey: ["alert-digest", 7],
+    queryFn: () => fetchDigest(7),
     refetchInterval: 60000,
   });
 
   const bonds = (digest || []).filter(b => b.status !== "MATURED");
   const totalPenalty = bonds.reduce((s, b) => s + b.total_penalty, 0);
   const totalMissing = bonds.reduce((s, b) => s + b.total_missing, 0);
-  const totalTxes = bonds.reduce((s, b) => s + b.blockchain_txes.length, 0);
   const maturingSoon = bonds.filter(b => b.maturity_status === "SOON" || b.maturity_status === "DUE").length;
-  const daysLabel = `${days}d`;
+  const daysLabel = "7d";
 
   return (
     <div>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+      <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--text2)" }}>
-          📋 Alert Center
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {[7, 14, 30].map(d => (
-            <button key={d} onClick={() => setDays(d)} style={{
-              padding: "4px 12px", borderRadius: 100, fontSize: 10, fontWeight: 600, cursor: "pointer",
-              background: days === d ? "var(--blue)" : "var(--card2)",
-              color: days === d ? "#fff" : "var(--text2)",
-              border: `1px solid ${days === d ? "var(--blue)" : "var(--border)"}`,
-              fontFamily: "var(--mono)",
-            }}>Last {d}d</button>
-          ))}
+          ◈ Alert Center
         </div>
       </div>
 
       {/* KPI row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
         {[
           { l: "Penalty Days",    v: totalPenalty,  c: totalPenalty > 0 ? "var(--red)" : "var(--text2)" },
-          { l: "Blockchain TXes", v: totalTxes,     c: "var(--cyan)" },
-          { l: "Missing Days",    v: totalMissing,  c: totalMissing > 0 ? "var(--amber)" : "var(--text2)" },
+          { l: "Unsubmitted Days",  v: totalMissing,  c: totalMissing > 0 ? "var(--slate)" : "var(--text2)" },
           { l: "Maturing Soon",   v: maturingSoon,  c: maturingSoon > 0 ? "var(--amber)" : "var(--text2)" },
         ].map(k => (
           <div key={k.l} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: "14px 16px", position: "relative", overflow: "hidden" }}>

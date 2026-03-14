@@ -47,7 +47,7 @@ export default function BlockchainModal({ bond, txData, onClose }) {
       <div onClick={e => e.stopPropagation()} style={{ background: "var(--surface)", border: "1px solid var(--border2)", borderRadius: 12, padding: 24, width: 580, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", animation: "slideUp .22s" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <div style={{ fontFamily: "var(--display)", fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-            🔗 Raw Blockchain Payload
+            ◈ Raw Blockchain Payload
           </div>
           <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--card)", border: "1px solid var(--border)", cursor: "pointer", fontSize: 13, color: "var(--text2)", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         </div>
@@ -78,7 +78,7 @@ export default function BlockchainModal({ bond, txData, onClose }) {
         <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
           <button style={{ padding: "10px 20px", borderRadius: "var(--r2)", background: "var(--green)", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)" }}
             onClick={() => { navigator.clipboard.writeText(jsonStr); onClose(); }}>
-            📋 Copy JSON
+            COPY JSON
           </button>
           <a href={explorerUrl} target="_blank" rel="noreferrer"
             style={{ padding: "10px 18px", borderRadius: "var(--r2)", background: "var(--card2)", border: "1px solid var(--border2)", color: "var(--blue)", fontSize: 12, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>

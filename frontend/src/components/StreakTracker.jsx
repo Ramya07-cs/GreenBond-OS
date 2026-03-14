@@ -36,7 +36,7 @@ export default function StreakTracker({ bond }) {
           border: `1px solid ${isP ? "rgba(255,61,61,.2)" : penaltyDays > 0 ? "rgba(255,152,0,.25)" : "rgba(0,230,118,.2)"}`,
         }}>
           <div style={{ fontSize: 10, color: isP ? "var(--red)" : penaltyDays > 0 ? "var(--amber)" : "var(--green)", fontWeight: 700, letterSpacing: ".08em", marginBottom: 4 }}>
-            {isP ? "⚠ PENALTY ACTIVE" : penaltyDays > 0 ? "⚠ APPROACHING PENALTY" : "✅ COMPLIANT STREAK"}
+            {isP ? "▲ PENALTY ACTIVE" : penaltyDays > 0 ? "▲ APPROACHING PENALTY" : "✦ COMPLIANT STREAK"}
           </div>
           <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 800, color: isP ? "var(--red)" : penaltyDays > 0 ? "var(--amber)" : "var(--green)" }}>
             {isP
@@ -53,7 +53,7 @@ export default function StreakTracker({ bond }) {
       {/* ── Penalty streak bar ── */}
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase" }}>🔴 Penalty Streak</div>
+          <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase" }}>◈ Penalty Streak</div>
           <div style={{ fontSize: 9, fontFamily: "var(--mono)", color: penaltyDays > 0 ? "var(--red)" : "var(--text3)", fontWeight: 700 }}>
             {penaltyDays} / {effectiveStreakTarget}
             <span style={{ color: "var(--text3)", fontWeight: 400, marginLeft: 6 }}>
@@ -77,7 +77,7 @@ export default function StreakTracker({ bond }) {
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <div style={{ fontSize: 9, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase" }}>
-            {isP ? "🌿 Recovery Progress" : "✅ Compliant Streak"}
+            {isP ? "↑ Recovery Progress" : "✦ Compliant Streak"}
           </div>
           <div style={{ fontSize: 9, fontFamily: "var(--mono)", color: compliantDays > 0 ? (isP ? "var(--cyan)" : "var(--green)") : "var(--text3)", fontWeight: 700 }}>
             {isP ? `${compliantDays} / ${recoveryTarget}` : `${compliantDays} day${compliantDays !== 1 ? "s" : ""}`}

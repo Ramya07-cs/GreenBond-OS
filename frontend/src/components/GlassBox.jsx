@@ -100,7 +100,7 @@ export default function GlassBox({ bond, auditLog }) {
           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: headerBg, cursor: "pointer", transition: "background .2s" }}
         >
           <div style={{ fontFamily: "var(--display)", fontSize: 12, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: headerColor, display: "flex", alignItems: "center", gap: 8 }}>
-            🔬 Glass Box —&nbsp;
+            ◈ Glass Box —&nbsp;
             {hasRealAudit && `PR Audit Record · ${auditDate}`}
             {isIgnored && `Audit Record · ${auditDate} · Skipped`}
             {isPending && "No Completed Audit Yet"}

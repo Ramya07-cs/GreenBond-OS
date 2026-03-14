@@ -35,7 +35,7 @@ function ResultBanner({ ok, message, detail, onReset }) {
       border: `1px solid ${ok ? "rgba(0,230,118,.2)" : "rgba(255,61,61,.2)"}`,
       borderRadius: "var(--r2)",
     }}>
-      <div style={{ fontSize: 24, marginBottom: 8 }}>{ok ? "✅" : "❌"}</div>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>{ok ? "✓" : "✕"}</div>
       <div style={{ color: ok ? "var(--green)" : "var(--red)", fontWeight: 700, marginBottom: 4 }}>{message}</div>
       {detail && <div style={{ fontSize: 11, color: "var(--text2)", marginBottom: 10 }}>{detail}</div>}
       <button onClick={onReset} style={{
@@ -125,7 +125,7 @@ function ManualPanel({ bonds }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
       <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16 }}>📝 Submit Daily Production</div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16 }}>◈ Submit Daily Production</div>
         {result ? (
           <ResultBanner {...result} onReset={() => { setResult(null); setForm(f => ({ ...f, kwh: "", notes: "" })); }} />
         ) : (
@@ -140,7 +140,7 @@ function ManualPanel({ bonds }) {
               <input type="date" value={form.date} min={minDate} max={maxDate} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inputStyle} />
             {selectedBond?.status === "MATURED" && (
               <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(84,110,122,.1)", border: "1px solid rgba(84,110,122,.3)", borderRadius: "var(--r2)", fontSize: 10, color: "var(--slate)", lineHeight: 1.6 }}>
-                🏁 This bond matured on <strong>{selectedBond.maturity_date}</strong>. Data can only be submitted up to the maturity date.
+                ▲ This bond matured on <strong>{selectedBond.maturity_date}</strong>. Data can only be submitted up to the maturity date.
               </div>
             )}
             {selectedDateAudit && (
@@ -158,12 +158,12 @@ function ManualPanel({ bonds }) {
             </Field>
             <button onClick={handleSubmit} disabled={mutation.isPending || !form.bond_id || !form.kwh}
               style={{ padding: "10px 20px", borderRadius: "var(--r2)", background: "var(--green)", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)", opacity: (!form.bond_id || !form.kwh) ? .4 : 1, transition: "opacity .2s" }}>
-              {mutation.isPending ? "⏳ Submitting..." : "⬆ Submit & Log"}
+              {mutation.isPending ? "SUBMITTING..." : "SUBMIT & LOG ↑"}
             </button>
 
             {/* Submission deadline notice */}
             <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(84,110,122,.06)", border: "1px solid rgba(84,110,122,.2)", borderRadius: "var(--r2)" }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 6 }}>📋 Submission Policy</div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: "var(--text3)", letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 6 }}>◈ Submission Policy</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 10, color: "var(--text2)" }}>
                   <span style={{ color: "var(--green)", fontWeight: 700, flexShrink: 0 }}>✓ Within 3 days</span>
@@ -186,7 +186,7 @@ function ManualPanel({ bonds }) {
       <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)" }}>
-            📅 {calMonthLabel} — Data Coverage
+            ◈ {calMonthLabel} — Data Coverage
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={prevMonth} style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--r2)", color: "var(--text2)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>‹</button>
@@ -194,12 +194,16 @@ function ManualPanel({ bonds }) {
           </div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
-          {[["var(--green-dim)","rgba(0,230,118,.3)","var(--green)","Submitted"],["var(--red-dim)","rgba(255,61,61,.3)","var(--red)","Missing"],["rgba(180,0,0,.15)","rgba(255,61,61,.5)","var(--red)","🔒 Auto-penalty"],["rgba(255,255,255,.02)","var(--border)","var(--text3)","Future"],["rgba(255,255,255,.01)","rgba(255,255,255,.04)","var(--text3)","N/A"]].map(([bg, border, color, label]) => (
+          {[["var(--green-dim)","rgba(0,230,118,.3)","var(--green)","Submitted"],["var(--red-dim)","rgba(255,61,61,.3)","var(--red)","Missing"],["rgba(255,255,255,.02)","var(--border)","var(--text3)","Future"],["rgba(255,255,255,.01)","rgba(255,255,255,.04)","var(--text3)","N/A"]].map(([bg, border, color, label]) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "var(--text2)" }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: bg, border: `1px solid ${border}` }} />
               <span style={{ color }}>{label}</span>
             </div>
           ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9 }}>
+            <span style={{ color: "var(--red)", fontWeight: 700 }}>▲</span>
+            <span style={{ color: "var(--red)" }}>Auto-penalty</span>
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 4 }}>
           {["M","T","W","T","F","S","S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 9, color: "var(--text3)", padding: "2px 0" }}>{d}</div>)}
@@ -227,7 +231,7 @@ function ManualPanel({ bonds }) {
             let bg = "var(--card2)", borderColor = "var(--border)", color = "var(--text2)", opacity = 1, dotColor = null, label = null;
             if (isNA) { bg = "rgba(255,255,255,.01)"; borderColor = "rgba(255,255,255,.04)"; color = "var(--text3)"; opacity = 0.35; }
             else if (isFuture) { bg = "rgba(255,255,255,.02)"; opacity = 0.25; color = "var(--text3)"; }
-            else if (isAutoPenalty) { bg = "rgba(180,0,0,.15)"; borderColor = "rgba(255,61,61,.5)"; color = "var(--red)"; dotColor = "var(--red)"; label = "🔒"; }
+            else if (isAutoPenalty) { bg = "rgba(180,0,0,.15)"; borderColor = "rgba(255,61,61,.5)"; color = "var(--red)"; dotColor = "var(--red)"; label = "▲"; }
             else if (isSubmitted) { bg = "var(--green-dim)"; borderColor = "rgba(0,230,118,.35)"; color = "var(--green)"; dotColor = "var(--green)"; }
             else if (isMissing) { bg = "var(--red-dim)"; borderColor = "rgba(255,61,61,.35)"; color = "var(--red)"; dotColor = "var(--red)"; }
             if (isToday) borderColor = "var(--green)";
@@ -253,7 +257,7 @@ function ManualPanel({ bonds }) {
               </div>
             ) : (
               <div style={{ padding: 10, background: "var(--green-dim)", border: "1px solid rgba(0,230,118,.2)", borderRadius: "var(--r2)" }}>
-                <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700 }}>✅ All days submitted</div>
+                <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700 }}>✦ All days submitted</div>
                 <div style={{ fontSize: 10, color: "var(--text2)", marginTop: 2 }}>{missingData.submitted_days} of {missingData.total_days} applicable days covered.</div>
               </div>
             )}
@@ -301,14 +305,14 @@ function IoTPanel({ bonds }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ padding: "10px 14px", background: "var(--amber-dim)", border: "1px solid rgba(255,179,0,.25)", borderRadius: "var(--r2)", fontSize: 11, color: "var(--text2)", lineHeight: 1.7 }}>
-        📡 <strong style={{ color: "var(--amber)" }}>IoT Auto-Sync:</strong> Use the form below to simulate or trigger an IoT push. In production, inverters call{" "}
+        ◈ <strong style={{ color: "var(--amber)" }}>IoT Auto-Sync:</strong> Use the form below to simulate or trigger an IoT push. In production, inverters call{" "}
         <code style={{ fontFamily: "var(--mono)", fontSize: 10, background: "var(--input)", padding: "1px 5px", borderRadius: 3 }}>POST /api/production/iot</code> directly.
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         {/* IoT Push Form */}
         <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16 }}>📡 IoT Push Form</div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 16 }}>◈ IoT Push Form</div>
           {result ? (
             <ResultBanner {...result} onReset={() => { setResult(null); setForm(f => ({ ...f, kwh: "", device_id: "" })); }} />
           ) : (
@@ -336,13 +340,13 @@ function IoTPanel({ bonds }) {
               </Field>
               {(form.bond_id || form.device_id || form.kwh) && (
                 <div style={{ background: "var(--void)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "10px 12px" }}>
-                  <div style={{ fontSize: 9, letterSpacing: ".1em", color: "var(--text3)", textTransform: "uppercase", marginBottom: 6 }}>📋 Payload Preview</div>
+                  <div style={{ fontSize: 9, letterSpacing: ".1em", color: "var(--text3)", textTransform: "uppercase", marginBottom: 6 }}>◈ Payload Preview</div>
                   <pre style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{JSON.stringify(previewPayload, null, 2)}</pre>
                 </div>
               )}
               <button onClick={handleSubmit} disabled={mutation.isPending || !form.bond_id || !form.device_id || !form.kwh}
                 style={{ padding: "10px 20px", borderRadius: "var(--r2)", background: "var(--amber)", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)", opacity: (!form.bond_id || !form.device_id || !form.kwh) ? .4 : 1, transition: "opacity .2s" }}>
-                {mutation.isPending ? "⏳ Pushing..." : "📡 Push IoT Data"}
+                {mutation.isPending ? "PUSHING..." : "PUSH IOT DATA ↑"}
               </button>
             </div>
           )}
@@ -350,7 +354,7 @@ function IoTPanel({ bonds }) {
 
         {/* Bond IoT Targets */}
         <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>🌐 Bond IoT Targets</div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 14 }}>◈ Bond IoT Targets</div>
           {bonds.length === 0 ? (
             <div style={{ padding: 24, textAlign: "center", color: "var(--text3)", fontSize: 12 }}>No bonds registered yet.</div>
           ) : bonds.map(b => (
@@ -358,7 +362,7 @@ function IoTPanel({ bonds }) {
               <div onClick={() => setExpandedBond(expandedBond === b.id ? null : b.id)}
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: expandedBond === b.id ? "var(--card2)" : "var(--card)", border: `1px solid ${expandedBond === b.id ? "rgba(0,230,118,.25)" : "var(--border)"}`, borderRadius: "var(--r2)", marginBottom: 6, cursor: "pointer", transition: "all .15s" }}>
                 <div>
-                  <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>📡 {b.name}<span style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)" }}>({b.id})</span></div>
+                  <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>{b.name}<span style={{ fontSize: 9, color: "var(--text3)", fontFamily: "var(--mono)" }}>({b.id})</span></div>
                   <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 2 }}>Tap to view connection details</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -407,7 +411,7 @@ function IoTPanel({ bonds }) {
 export default function DataEntry() {
   const [mode, setMode] = useState("manual");
   const { data: bonds = [] } = useBonds();
-  const tabs = [["manual", "📝 Manual Entry"], ["iot", "🌐 IoT Auto-Sync"]];
+  const tabs = [["manual", "◈ Manual Entry"], ["iot", "◈ IoT Auto-Sync"]];
 
   return (
     <div>

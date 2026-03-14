@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchBlockchainStatus, fetchAlertSummary } from "../api";
+import { fetchBlockchainStatus } from "../api";
 
 export default function Topbar({ title, subtitle, onBack, onAlerts }) {
   const { data: chain } = useQuery({
@@ -8,16 +8,6 @@ export default function Topbar({ title, subtitle, onBack, onAlerts }) {
     refetchInterval: 60_000,
     retry: false,
   });
-
-  // Live unread critical alert count for the bell badge
-  const { data: alertSummary } = useQuery({
-    queryKey: ["alert-summary"],
-    queryFn: fetchAlertSummary,
-    refetchInterval: 30_000,
-    retry: false,
-  });
-
-  const unreadCount = alertSummary?.unread_critical ?? 0;
 
   return (
     <div style={{
@@ -51,36 +41,28 @@ export default function Topbar({ title, subtitle, onBack, onAlerts }) {
 
         {/* Chain status */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 100, border: "1px solid rgba(33,150,243,.25)", background: "var(--blue-dim)", fontSize: 10, color: "var(--blue)" }}>
-          🔗 {chain?.connected
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".05em", opacity: 0.7 }}>⛓</span>
+          {chain?.connected
             ? `${chain.network || "POLYGON"} · #${chain.latest_block?.toLocaleString()}`
             : "CONNECTING..."}
         </div>
 
-        {/* Bell with live unread count */}
+        {/* Bell */}
         <div
           onClick={onAlerts}
           style={{
-            position: "relative", width: 34, height: 34, borderRadius: "var(--r2)",
+            width: 34, height: 34, borderRadius: "var(--r2)",
             border: "1px solid var(--border)", background: "var(--card)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", fontSize: 14, transition: "border-color .2s",
+            cursor: "pointer", transition: "border-color .2s",
           }}
           onMouseEnter={e => e.currentTarget.style.borderColor = "var(--amber)"}
           onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
         >
-          🔔
-          {unreadCount > 0 && (
-            <div style={{
-              position: "absolute", top: -4, right: -4,
-              minWidth: 16, height: 16, borderRadius: 8,
-              background: "var(--red)", fontSize: 9, fontWeight: 700,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "#fff", border: "2px solid var(--void)", fontFamily: "var(--mono)",
-              padding: "0 3px",
-            }}>
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </div>
-          )}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text2)" }}>
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
         </div>
       </div>
     </div>

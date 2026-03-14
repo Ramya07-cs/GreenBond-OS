@@ -98,7 +98,7 @@ export default function BondRegistration() {
     return (
       <div style={{ maxWidth: 600 }}>
         <div style={{ padding: 24, background: "var(--green-dim)", border: "1px solid rgba(0,230,118,.25)", borderRadius: "var(--r)", textAlign: "center" }}>
-          <div style={{ fontSize: 28, marginBottom: 10 }}>🎉</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "var(--green)", letterSpacing: ".2em", marginBottom: 10 }}>✦ SUCCESS</div>
           <div style={{ color: "var(--green)", fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Bond Registered!</div>
           <div style={{ fontSize: 11, color: "var(--text2)", marginBottom: 16 }}>
             {b.name} is now active on the platform and ready to accept production data.
@@ -138,7 +138,7 @@ export default function BondRegistration() {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Tab switcher */}
       <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)" }}>
-        {[["register", "🌿 Register Bond"], ["manage", "⚙ Manage Bonds"]].map(([id, label]) => (
+        {[["register", "REGISTER BOND ↗"], ["manage", "◈ Manage Bonds"]].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{
             padding: "9px 20px", background: "none", border: "none",
             borderBottom: tab === id ? "2px solid var(--green)" : "2px solid transparent",
@@ -173,12 +173,12 @@ export default function BondRegistration() {
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setFixState(s => ({ ...s, [bond.id]: { ...f, open: !f.open } }))}
                       style={{ padding: "5px 12px", background: "var(--card2)", border: "1px solid var(--border)", color: "var(--text2)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 10, fontFamily: "var(--mono)" }}>
-                      🔧 Fix Registration
+                      ↻ Fix Registration
                     </button>
                     {!isConfirm ? (
                       <button onClick={() => setDeleteConfirm(bond.id)}
                         style={{ padding: "5px 12px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.3)", color: "var(--red)", borderRadius: "var(--r2)", cursor: "pointer", fontSize: 10, fontFamily: "var(--mono)", fontWeight: 700 }}>
-                        🗑 Delete
+                        ✕ Delete
                       </button>
                     ) : (
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -210,7 +210,7 @@ export default function BondRegistration() {
                           style={{ flex: 1, minWidth: 120, padding: "7px 10px", background: "var(--input)", border: "1px solid var(--border)", borderRadius: "var(--r2)", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 10, outline: "none" }} />
                         <button onClick={() => handleFixReg(bond)} disabled={!f.tx?.trim() || f.loading}
                           style={{ padding: "7px 14px", background: "var(--amber)", border: "none", color: "#000", fontWeight: 700, fontSize: 10, borderRadius: "var(--r2)", cursor: "pointer", fontFamily: "var(--mono)", opacity: !f.tx?.trim() ? 0.4 : 1 }}>
-                          {f.loading ? "..." : "💾 Save"}
+                          {f.loading ? "..." : "SAVE ✓"}
                         </button>
                         {f.error && <div style={{ width: "100%", fontSize: 9, color: "var(--red)", fontFamily: "var(--mono)" }}>{f.error}</div>}
                       </div>
@@ -227,11 +227,11 @@ export default function BondRegistration() {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 16, alignItems: "start" }}>
       {/* Form */}
       <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 20 }}>🌿 Register New Green Bond</div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 20 }}>◈ Register New Green Bond</div>
 
         {result?.ok === false && (
           <div style={{ padding: "10px 14px", background: "var(--red-dim)", border: "1px solid rgba(255,61,61,.2)", borderRadius: "var(--r2)", marginBottom: 16, fontSize: 11, color: "var(--red)" }}>
-            ❌ {result.message}
+            ✕ {result.message}
           </div>
         )}
 
@@ -290,7 +290,7 @@ export default function BondRegistration() {
 
           <button onClick={handleSubmit} disabled={mutation.isPending || !isValid}
             style={{ padding: "11px 20px", borderRadius: "var(--r2)", background: "var(--green)", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)", opacity: !isValid ? .4 : 1, transition: "opacity .2s", marginTop: 4 }}>
-            {mutation.isPending ? "⏳ Registering..." : "🌿 Register Bond"}
+            {mutation.isPending ? "REGISTERING..." : "REGISTER BOND ↗"}
           </button>
         </div>
       </div>
@@ -299,7 +299,7 @@ export default function BondRegistration() {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {/* Required fields */}
         <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>📋 Required Fields</div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>◈ Required Fields</div>
           {[
             ["Bond ID", "Unique, immutable after creation"],
             ["Bond Name", "Display label across the dashboard"],
@@ -319,7 +319,7 @@ export default function BondRegistration() {
 
         {/* What happens next */}
         <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r)", padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>⚡ What Happens Next</div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text2)", marginBottom: 12 }}>◈ What Happens Next</div>
           {[
             ["Bond activates immediately", "Status set to ACTIVE; IoT endpoint live."],
             ["Daily audit begins", "NASA POWER API fetches GHI for your coordinates."],
@@ -339,7 +339,7 @@ export default function BondRegistration() {
         {/* Live preview */}
         {(form.id || form.name) && (
           <div style={{ background: "var(--card)", border: "1px solid rgba(0,230,118,.15)", borderRadius: "var(--r)", padding: 16, animation: "fadeIn .2s" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--green)", marginBottom: 12 }}>👁 Live Preview</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--green)", marginBottom: 12 }}>◈ Live Preview</div>
             <pre style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text2)", lineHeight: 1.9, whiteSpace: "pre-wrap" }}>
 {JSON.stringify({
   id: form.id.toUpperCase() || "...",

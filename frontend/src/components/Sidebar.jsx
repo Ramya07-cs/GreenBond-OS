@@ -1,15 +1,53 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBonds } from "../hooks/useBonds";
-import { fetchSystemHealth, fetchAlertSummary } from "../api";
+import { fetchSystemHealth } from "../api";
+
+const NAV_ICONS = {
+  dashboard: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+      <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+    </svg>
+  ),
+  register: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  ),
+  entry: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
+      <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+    </svg>
+  ),
+  blockchain: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="7" width="6" height="6" rx="1"/><rect x="16" y="7" width="6" height="6" rx="1"/>
+      <rect x="9" y="14" width="6" height="6" rx="1"/><line x1="8" y1="10" x2="16" y2="10"/>
+      <line x1="12" y1="7" x2="12" y2="14"/>
+    </svg>
+  ),
+  health: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+    </svg>
+  ),
+  alerts: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+    </svg>
+  ),
+};
 
 const NAV = [
-  { id: "dashboard",  icon: "📊", label: "Dashboard" },
-  { id: "register",   icon: "🌿", label: "Bond Registration" },
-  { id: "entry",      icon: "📥", label: "Data Entry" },
-  { id: "blockchain", icon: "🔗", label: "Blockchain" },
-  { id: "health",     icon: "🖥️", label: "System Health" },
-  { id: "alerts",     icon: "🔔", label: "Alert Center" },
+  { id: "dashboard",  label: "Dashboard" },
+  { id: "register",   label: "Bond Registration" },
+  { id: "entry",      label: "Data Entry" },
+  { id: "blockchain", label: "Blockchain" },
+  { id: "health",     label: "System Health" },
+  { id: "alerts",     label: "Alert Center" },
 ];
 
 // Keys to show in the sidebar footer. These match the service keys
@@ -32,14 +70,6 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
     refetchInterval: 30_000,
     retry: false,
     // Don't throw on error — sidebar should degrade gracefully, not crash.
-    throwOnError: false,
-  });
-
-  const { data: alertSummary } = useQuery({
-    queryKey: ["alert-summary"],
-    queryFn: fetchAlertSummary,
-    refetchInterval: 60_000,
-    retry: false,
     throwOnError: false,
   });
 
@@ -86,9 +116,8 @@ export default function Sidebar({ view, onNav, onBond, selectedBond }) {
               fontSize: 12, letterSpacing: ".04em", transition: "all .18s",
             }}
           >
-            <span style={{ fontSize: 14, width: 18, textAlign: "center" }}>{n.icon}</span>
+            <span style={{ width: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{NAV_ICONS[n.id]}</span>
             {n.label}
-            {n.id === "alerts" && (alertSummary?.unread_critical > 0) && <span style={{ marginLeft: "auto", background: "var(--red)", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 100 }}>{alertSummary.unread_critical}</span>}
           </div>
         ))}
 
