@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(name="tasks.maturity.check_bond_maturity")
 def check_bond_maturity():
+    """
+    Detect and process bonds that have reached their maturity date.
+    Safe to run multiple times — idempotent (won't re-process MATURED bonds).
+    """
     today = date.today()
     db: Session = SessionLocal()
     summary = {"checked": 0, "matured": [], "errors": []}
@@ -53,6 +57,7 @@ def check_bond_maturity():
         db.close()
 
     return summary
+
 
 def recompute_matured_bond_stats(db: Session, bond: Bond):
     """Recompute final_avg_pr and total_penalty_days for an already-MATURED bond.

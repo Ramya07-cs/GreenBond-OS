@@ -4,10 +4,11 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import date as date_type
 from database import get_db
-from models import AuditLog
+from models import AuditLog, ProductionEntry
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/audit", tags=["audit"])
+
 
 @router.get("/")
 def get_audit_logs(
@@ -25,6 +26,22 @@ def get_audit_logs(
 
     total = query.count()
     logs = query.order_by(AuditLog.date.desc()).offset(offset).limit(limit).all()
+
+    # Fetch submitted_late flags for these bond/date combos
+    if logs:
+        bond_ids = list({log.bond_id for log in logs})
+        dates = [log.date for log in logs]
+        prod_entries = (
+            db.query(ProductionEntry.bond_id, ProductionEntry.date, ProductionEntry.submitted_late, ProductionEntry.submitted_on)
+            .filter(
+                ProductionEntry.bond_id.in_(bond_ids),
+                ProductionEntry.date.in_(dates),
+            )
+            .all()
+        )
+        prod_map = {(p.bond_id, str(p.date)): p for p in prod_entries}
+    else:
+        prod_map = {}
 
     return {
         "total": total,
@@ -47,10 +64,13 @@ def get_audit_logs(
                 "blockchain_tx_hash": log.blockchain_tx_hash,
                 "block_number": log.block_number,
                 "gas_used": log.gas_used,
+                "submitted_late": bool(prod_map.get((log.bond_id, str(log.date)), {}) and prod_map[(log.bond_id, str(log.date))].submitted_late),
+                "submitted_on": str(prod_map[(log.bond_id, str(log.date))].submitted_on) if (log.bond_id, str(log.date)) in prod_map and prod_map[(log.bond_id, str(log.date))].submitted_on else None,
             }
             for log in logs
         ],
     }
+
 
 @router.post("/run")
 def trigger_manual_audit(
@@ -62,7 +82,8 @@ def trigger_manual_audit(
 ):
     from tasks.daily_audit import run_daily_audit
     from redis_client import redis_client
-  
+
+   
     resolved_date = target_date or date
     if force and resolved_date and bond_id:
         deleted = (
@@ -89,6 +110,7 @@ def trigger_manual_audit(
         "forced": force,
     }
 
+
 @router.patch("/patch-tx")
 def patch_audit_tx(
     bond_id: str,
@@ -100,7 +122,12 @@ def patch_audit_tx(
     rate_after: float = None,
     db: Session = Depends(get_db),
 ):
-
+    """
+    Manually patch blockchain TX fields (and optionally rates) on an existing
+    audit log record. Used to repair records where the TX succeeded on-chain
+    but the DB was not updated (e.g. out-of-gas mid-write, rate_before/after
+    were recorded as equal due to bond rate already being updated).
+    """
     log = (
         db.query(AuditLog)
         .filter(AuditLog.bond_id == bond_id, AuditLog.date == date)
@@ -154,3 +181,39 @@ def trigger_manual_catchup(force: bool = False):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Catchup failed: {str(e)}")
+
+@router.post("/lock-expired")
+def trigger_lock_expired():
+    """Manually trigger the lock-expired-ignored-as-penalty task.
+    Use for testing — in production this runs automatically at 14:30 daily.
+    Finds all IGNORED rows older than 7 days with no production entry and locks them as PENALTY."""
+    try:
+        from tasks.catchup import lock_expired_ignored_as_penalty
+        summary = lock_expired_ignored_as_penalty()
+        return {
+            "message": "Lock-expired complete",
+            "locked": summary["locked"],
+            "skipped": summary["skipped"],
+            "locked_count": len(summary["locked"]),
+            "skipped_count": len(summary["skipped"]),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lock-expired failed: {str(e)}")
+
+
+@router.post("/recompute-maturity")
+def recompute_maturity_stats(bond_id: str, db: Session = Depends(get_db)):
+    """Recompute final_avg_pr and total_penalty_days for a MATURED bond.
+    Use this after NASA lag catchup fills in missing audit records."""
+    from models import Bond, BondStatus
+    from tasks.maturity import recompute_matured_bond_stats
+
+    bond = db.query(Bond).filter(Bond.id == bond_id).first()
+    if not bond:
+        raise HTTPException(status_code=404, detail=f"Bond {bond_id} not found")
+    if bond.status != BondStatus.MATURED:
+        raise HTTPException(status_code=400, detail=f"Bond {bond_id} is not MATURED")
+
+    result = recompute_matured_bond_stats(db, bond)
+    db.commit()
+    return {"message": "Recomputed", "bond_id": bond_id, **result}

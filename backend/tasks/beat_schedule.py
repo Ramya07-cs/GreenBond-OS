@@ -19,7 +19,7 @@ CELERYBEAT_SCHEDULE = {
         "options": {"queue": "audits"},
     },
 
-    # ── Bond maturity check ───────────────────────────────────────────────────
+    # ── Bond maturity check ──
     "check-bond-maturity": {
         "task": "tasks.maturity.check_bond_maturity",
         "schedule": crontab(
@@ -29,10 +29,21 @@ CELERYBEAT_SCHEDULE = {
         "options": {"queue": "audits"},
     },
 
-    # ── Retry IGNORED days ─────────────────────────────────────── (This job runs at 14:00 daily )
     "retry-ignored-audits": {
         "task": "tasks.catchup.retry_ignored_audits",
         "schedule": crontab(hour=14, minute=0),
+        "options": {"queue": "audits"},
+    },
+
+    "retry-failed-blockchain-txs": {
+        "task": "tasks.blockchain_retry.retry_failed_blockchain_txs_task",
+        "schedule": crontab(hour=7, minute=0),
+        "options": {"queue": "audits"},
+    },
+
+    "lock-expired-submissions": {
+        "task": "tasks.catchup.lock_expired_ignored_as_penalty_task",
+        "schedule": crontab(hour=14, minute=30),
         "options": {"queue": "audits"},
     },
 }

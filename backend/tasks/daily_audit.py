@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
     max_retries=3,
     default_retry_delay=300,  # 5 minutes between retries
 )
-def run_daily_audit(self, target_date: str = None, bond_id: str = None):
+def run_daily_audit(self, target_date: str = None, bond_id: str = None, force: bool = False, auto_penalty_no_data: bool = False):
     audit_date = date.fromisoformat(target_date) if target_date else date.today()
     logger.info(
         f"=== Daily Audit Started for {audit_date} ==="
@@ -55,7 +55,7 @@ def run_daily_audit(self, target_date: str = None, bond_id: str = None):
 
         for bond in active_bonds:
             try:
-                _audit_single_bond(db, bond, audit_date, results)
+                _audit_single_bond(db, bond, audit_date, results, auto_penalty_no_data=auto_penalty_no_data)
                 results["bonds_processed"] += 1
             except Exception as e:
                 logger.error(f"Error auditing bond {bond.id}: {e}", exc_info=True)
@@ -80,7 +80,7 @@ def run_daily_audit(self, target_date: str = None, bond_id: str = None):
     return results
 
 
-def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict):
+def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict, auto_penalty_no_data: bool = False):
     """Run the complete audit pipeline for a single bond."""
     import asyncio
 
@@ -190,6 +190,16 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
     )
     actual_kwh = float(production.kwh) if production else None
     logger.info(f"  Actual kWh: {actual_kwh}")
+
+    # ── auto_penalty_no_data: deadline exceeded, no submission — treat as 0 kWh ─
+    # This is triggered by lock_expired_ignored_as_penalty when the 7-day window closes.
+    # We use 0 kWh so PR = 0 → guaranteed PENALTY. NASA GHI is still used for the record.
+    if auto_penalty_no_data and actual_kwh is None:
+        logger.warning(
+            f"  {bond.id} on {audit_date}: AUTO-PENALTY — submission deadline exceeded, "
+            f"no production data submitted. Forcing kwh=0 → PENALTY."
+        )
+        actual_kwh = 0.0
 
     # ── Step 2b: NASA lag + user data submitted = PENDING, retry later ────────
     # If user submitted production data but NASA hasn't caught up yet,don't mark as IGNORED — mark as PENDING so catchup retries it tomorrow.
@@ -339,6 +349,7 @@ def _audit_single_bond(db: Session, bond: Bond, audit_date: date, results: dict)
         pr_result=pr_result,
         penalty_decision=decision,
         tx_result=tx_result,
+        auto_penalty_no_data=auto_penalty_no_data,
     )
 
     # ── Step 9: Recompute matured bond stats (NASA lag catchup) ──────────────

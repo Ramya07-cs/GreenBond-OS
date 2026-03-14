@@ -10,6 +10,7 @@ celery_app = Celery(
         "tasks.maturity",       # Bond lifecycle maturity detection
         "tasks.catchup",        # retry_ignored_audits scheduled task
         "tasks.beat_schedule",  # write_beat_heartbeat liveness task
+        "tasks.blockchain_retry",  # auto-retry failed blockchain TXs
     ],
 )
 

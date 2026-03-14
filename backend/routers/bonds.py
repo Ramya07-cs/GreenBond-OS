@@ -94,6 +94,11 @@ class BondOut(BaseModel):
     registration_block: Optional[int] = None
     blockchain_warning: Optional[str] = None  # set on create if on-chain registration failed
 
+    final_avg_pr: Optional[float] = None
+    total_penalty_days: Optional[int] = None
+    pending_nasa_days: Optional[int] = 0   # IGNORED rows with no nasa_ghi — awaiting NASA lag
+    pending_nasa_max_date: Optional[date] = None  # latest unaudited date — used to compute NASA publish date
+
     class Config:
         from_attributes = True
 
@@ -129,6 +134,30 @@ def _enrich_bond(bond: Bond, db: Session) -> BondOut:
     out.consecutive_compliant = int(latest_real_log.consecutive_compliant or 0) if latest_real_log else 0
     out.penalty_days_threshold = settings.CONSECUTIVE_PENALTY_DAYS
     out.recovery_days_threshold = settings.CONSECUTIVE_RECOVERY_DAYS
+    # Count IGNORED rows within maturity that make final stats incomplete
+    # Both nasa_ghi IS NULL (NASA lag) and actual_kwh IS NULL (no production data)
+    # prevent final_avg_pr from being accurate → show tentative until resolved
+    deadline_cutoff = date.today() - timedelta(days=7)
+    nasa_lag_filter = [
+        AuditLog.bond_id == bond.id,
+        AuditLog.verdict == "IGNORED",
+    ]
+    if bond.maturity_date:
+        nasa_lag_filter.append(AuditLog.date <= bond.maturity_date)
+
+    pending_nasa_logs = (
+        db.query(AuditLog.date)
+        .filter(
+            *nasa_lag_filter,
+            # NASA GHI missing OR production data missing (regardless of deadline)
+            (AuditLog.nasa_ghi.is_(None)) |
+            (AuditLog.actual_kwh.is_(None))
+        )
+        .all()
+    )
+    pending_dates = [row.date for row in pending_nasa_logs]
+    out.pending_nasa_days = len(pending_dates)
+    out.pending_nasa_max_date = max(pending_dates) if pending_dates else None
     return out
 
 

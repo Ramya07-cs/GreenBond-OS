@@ -3,7 +3,6 @@ from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from database import SessionLocal
 from models import Bond, AuditLog, BondStatus
@@ -143,6 +142,11 @@ def catchup_missed_audits(force: bool = False) -> dict:
         )
 
     return summary
+    
+# ── Celery task wrapper ────────────────────────────────────────────────────────
+# Wrapping catchup_missed_audits as a Celery task allows Celery Beat to schedule
+# the IGNORED-day retry automatically (e.g. at 14:00 daily) without requiring
+# a server restart. The plain function is still used by main.py at startup.
 
 from tasks.celery_app import celery_app  # noqa: E402 — import after function def
 
@@ -159,6 +163,105 @@ def retry_ignored_audits():
     return summary
 
 
+def lock_expired_ignored_as_penalty() -> dict:
+    """
+    Runs daily at 2pm alongside retry_ignored_audits.
+    Finds IGNORED audit rows where:
+      - No production entry exists (genuine no-submission), AND
+      - The audit date is older than HARD_DEADLINE_DAYS (7 days)
+    Converts them to PENALTY with a note, calculates correct streaks,
+    and triggers a blockchain TX for the rate change if needed.
+    """
+    from tasks.daily_audit import run_daily_audit
+    from models import ProductionEntry
+
+    HARD_DEADLINE_DAYS = 7
+
+    db: Session = SessionLocal()
+    summary = {"locked": [], "skipped": []}
+
+    try:
+        cutoff_date = date.today() - timedelta(days=HARD_DEADLINE_DAYS)
+
+        # Find all IGNORED rows older than the hard deadline with no production entry
+        expired_ignored = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.verdict == "IGNORED",
+                AuditLog.date <= cutoff_date,
+                AuditLog.actual_kwh.is_(None),  # no production data submitted
+            )
+            .order_by(AuditLog.bond_id, AuditLog.date.asc())
+            .all()
+        )
+
+        if not expired_ignored:
+            logger.info("[LockExpired] No expired IGNORED days found.")
+            return summary
+
+        logger.info(f"[LockExpired] Found {len(expired_ignored)} expired IGNORED day(s) to lock as PENALTY.")
+
+        for log in expired_ignored:
+            # Double-check: skip if a production entry now exists (submitted between
+            # the original audit and now — within the grace window)
+            prod_entry = (
+                db.query(ProductionEntry)
+                .filter(
+                    ProductionEntry.bond_id == log.bond_id,
+                    ProductionEntry.date == log.date,
+                )
+                .first()
+            )
+            if prod_entry:
+                logger.info(f"[LockExpired] {log.bond_id} {log.date}: production entry exists, skipping lock.")
+                summary["skipped"].append({"bond_id": log.bond_id, "date": str(log.date), "reason": "production_entry_exists"})
+                continue
+
+            # Delete the IGNORED row and re-queue as a forced audit
+            # The daily_audit task will compute PR=0 (no kwh) → PENALTY
+            logger.info(f"[LockExpired] Locking {log.bond_id} {log.date} as PENALTY (no production data, deadline exceeded).")
+            db.delete(log)
+            db.commit()
+
+            # Queue forced audit with stagger so streak reads are sequential
+            lock_index = len(summary["locked"])
+            run_daily_audit.apply_async(
+                kwargs={
+                    "target_date": str(log.date),
+                    "bond_id": log.bond_id,
+                    "force": True,
+                    "auto_penalty_no_data": True,
+                },
+                queue="audits",
+                countdown=lock_index * 30,  # stagger: 0s, 30s, 60s...
+            )
+            summary["locked"].append({"bond_id": log.bond_id, "date": str(log.date)})
+
+    except Exception as e:
+        logger.error(f"[LockExpired] Error: {e}", exc_info=True)
+    finally:
+        db.close()
+
+    if summary["locked"]:
+        logger.warning(
+            f"[LockExpired] Locked {len(summary['locked'])} day(s) as PENALTY: "
+            f"{summary['locked']}"
+        )
+
+    return summary
+
+
+@celery_app.task(name="tasks.catchup.lock_expired_ignored_as_penalty_task")
+def lock_expired_ignored_as_penalty_task():
+    logger.info("[LockExpired] Scheduled lock-expired-ignored task started.")
+    summary = lock_expired_ignored_as_penalty()
+    logger.info(
+        f"[LockExpired] Complete — {len(summary['locked'])} locked, "
+        f"{len(summary['skipped'])} skipped."
+    )
+    return summary
+
+
 def _find_missed_dates(
     db: Session,
     bond_id: str,
@@ -166,28 +269,6 @@ def _find_missed_dates(
     cutoff: date,
     force: bool = False,
 ) -> list[date]:
-
-    # Find the last audited date for this bond (any verdict including IGNORED/PENDING)
-    last_audited: Optional[date] = (
-        db.query(func.max(AuditLog.date))
-        .filter(AuditLog.bond_id == bond_id)
-        .scalar()
-    )
-
-    if last_audited is None:
-        start_from = cutoff
-        logger.info(
-            f"[Catchup] {bond_id}: no audit history found. "
-            f"Will process from {cutoff}."
-        )
-    elif last_audited >= up_to:
-        start_from = cutoff
-    else:
-        start_from = last_audited + timedelta(days=1)
-
-    start_from = max(start_from, cutoff)
-    if start_from > up_to:
-        start_from = cutoff
 
     # NASA POWER has a 5–6 day processing lag. Only retry IGNORED/PENDING audits
     # that are at least 7 days old — this guarantees NASA data should be available.
@@ -225,12 +306,14 @@ def _find_missed_dates(
         .filter(
             AuditLog.bond_id == bond_id,
             AuditLog.verdict.in_(["COMPLIANT", "PENALTY", "RECOVERY"]),
-            AuditLog.date >= max(start_from, cutoff),
+            AuditLog.date >= cutoff,
             AuditLog.date <= up_to,
         )
         .all()
     )
 
+    # Dates with IGNORED/PENDING that are still within the NASA lag window —
+    # too fresh to retry. Skipped UNLESS force=True.
     fresh_incomplete: set[date] = set() if force else set(
         row[0]
         for row in db.query(AuditLog.date)
@@ -243,7 +326,9 @@ def _find_missed_dates(
         .all()
     )
 
-    scan_from = max(cutoff, start_from)
+    # Always scan from cutoff — which is already max(global_cutoff, bond_start)
+    # passed in by the caller. This ensures we never audit before bond registration.
+    scan_from = cutoff
 
     missed = []
     current = scan_from

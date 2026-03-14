@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, Boolean, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from database import Base
@@ -16,6 +16,10 @@ class ProductionEntry(Base):
     device_id = Column(String(50), nullable=True)  # IoT inverter ID
     notes = Column(Text, nullable=True)
     uploaded_by = Column(String(100), nullable=True)
+
+    # Submission timing
+    submitted_on = Column(Date, nullable=True)       # date when data was submitted
+    submitted_late = Column(Boolean, default=False)  # True if submitted after 3-day grace period
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

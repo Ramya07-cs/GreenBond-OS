@@ -87,7 +87,21 @@ async def lifespan(app: FastAPI):
             f"Server will continue — trigger manual catchup via /audit/catchup if needed.",
             exc_info=True,
         )
-    # ────────────────────────────────────────────────────────────────────────
+
+    # ── Retry any failed blockchain TXs from previous runs ───────────────────
+    try:
+        from tasks.blockchain_retry import retry_failed_blockchain_txs
+        logger.info("Checking for unanchored blockchain TXs on startup...")
+        retry_summary = retry_failed_blockchain_txs()
+        if retry_summary["retried"]:
+            logger.info(f"Blockchain retry: anchored {len(retry_summary['retried'])} TX(s) on startup.")
+        if retry_summary["failed"]:
+            logger.warning(f"Blockchain retry: {len(retry_summary['failed'])} TX(s) still pending — will retry at 07:00.")
+        if not retry_summary["retried"] and not retry_summary["failed"]:
+            logger.info("Blockchain retry: all TXs anchored ✓")
+    except Exception as e:
+        logger.error(f"Startup blockchain retry failed: {e}. Will retry at 07:00 via beat schedule.", exc_info=True)
+    # ─────────────────────────────────────────────────────────────────────────
 
     yield
     logger.info(f"{settings.APP_NAME} shutting down.")
